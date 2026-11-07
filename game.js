@@ -18,7 +18,7 @@
   const DAMP = 0.9990;
   const SHOT_SPEED = 720;
   const COOLDOWN = 0.45;
-  const INNER_DAMP = 0.97;           // innere Dämpfung (Schleim)
+  const INNER_DAMP = 0.985;          // innere Dämpfung: etwas Nachschwappen wie Wasser
   const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
 
   // Zahlen-Blobs: 2, 4, 8 … gleiche Zahlen verschmelzen zur doppelten
@@ -26,7 +26,7 @@
     '#ffd93d', '#ff9f43', '#4be3b0', '#4d8df7', '#9b5cff', '#ff5fa2', '#ff7b3a',
     '#d8f24a', '#6ef06a', '#3fd0ff', '#ff4d6d', '#c84bff', '#ffffff', '#ffb3f0',
   ];
-  const LEVELS = PALETTE.map((c, i) => ({ v: Math.pow(2, i + 1), r: Math.round(17 * Math.pow(1.165, i)), c }));
+  const LEVELS = PALETTE.map((c, i) => ({ v: Math.pow(2, i + 1), r: Math.round(25 * Math.pow(1.15, i)), c }));
   const MAX_LEVEL = LEVELS.length - 1;
   const SPAWN_WEIGHTS = [30, 26, 20, 14, 10];
   const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31]; // Pentatonik
@@ -155,7 +155,7 @@
       this.level = level;
       const L = LEVELS[level];
       this.R = L.r;
-      const n = this.n = Math.min(32, 18 + level);
+      const n = this.n = Math.min(36, 22 + level);
       this.x = new Float32Array(n); this.y = new Float32Array(n);
       this.px = new Float32Array(n); this.py = new Float32Array(n);
       this.rx = new Float32Array(n); this.ry = new Float32Array(n);
@@ -169,7 +169,7 @@
       this.area0 = 0.5 * n * this.R * this.R * Math.sin((2 * Math.PI) / n);
       this.edge0 = 2 * this.R * Math.sin(Math.PI / n);
       this.invMass = n / (this.R * this.R);
-      this.k = 0.018;                  // nur schwacher Formerhalt -> sehr weich
+      this.k = 0.006;                  // kaum Formerhalt -> Wasserballon statt Gummi
       this.cx = x; this.cy = y; this.ang = 0;
       this.age = 0; this.dead = false;
       this.lastVx = 0; this.lastVy = 0; this.prevCx = x; this.prevCy = y;
@@ -219,7 +219,7 @@
     }
     // Hautspannung: Kanten dürfen sich etwas dehnen/stauchen
     edges() {
-      const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.22, mn = this.edge0 * 0.5;
+      const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.15, mn = this.edge0 * 0.5;
       for (let i = 0; i < n; i++) {
         const j = i === n - 1 ? 0 : i + 1;
         const dx = x[j] - x[i], dy = y[j] - y[i];
@@ -460,7 +460,17 @@
           for (let j = i + 1; j < n; j++) {
             const B = blobs[j];
             const dx = A.cx - B.cx, dy = A.cy - B.cy, rr = (A.R + B.R) * 1.45;
-            if (dx * dx + dy * dy > rr * rr) continue;
+            const d2 = dx * dx + dy * dy;
+            if (d2 > rr * rr) continue;
+            // stecken die Blobs tief ineinander: als Ganzes auseinanderschieben (ohne Schwung zu erzeugen)
+            const deep = (A.R + B.R) * 0.55;
+            if (d2 < deep * deep) {
+              const d = Math.sqrt(d2) || 1e-3;
+              const ux = d2 ? dx / d : 0, uy = d2 ? dy / d : -1;
+              const mA = A.R * A.R, mB = B.R * B.R, sep = (deep - d) * 0.25;
+              shift(A, ux * sep * mB / (mA + mB), uy * sep * mB / (mA + mB));
+              shift(B, -ux * sep * mA / (mA + mB), -uy * sep * mA / (mA + mB));
+            }
             const h1 = pushOut(A, B), h2 = pushOut(B, A);
             if (A.level === B.level && !A.dead && !B.dead && (h1 || h2 || near(A, B))) merges.push([A, B]);
           }
@@ -470,6 +480,11 @@
     for (const b of blobs) b.centroid();
     for (const [a, b] of merges) if (!a.dead && !b.dead) doMerge(a, b);
     if (merges.length) G.blobs = G.blobs.filter((b) => !b.dead);
+  }
+
+  function shift(b, sx, sy) {
+    for (let i = 0; i < b.n; i++) { b.x[i] += sx; b.y[i] += sy; b.px[i] += sx; b.py[i] += sy; }
+    b.cx += sx; b.cy += sy;
   }
 
   // berühren sich zwei Blobs (auch ohne Überlappung)?
