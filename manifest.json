@@ -1,0 +1,10 @@
+{
+  "name": "Blobbo",
+  "short_name": "Blobbo",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#1b1640",
+  "theme_color": "#1b1640",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
