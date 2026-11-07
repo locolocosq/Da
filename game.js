@@ -3,35 +3,33 @@
   // ---------------------------------------------------------------------------
   // Welt & Konstanten (virtuelle Einheiten, werden auf den Bildschirm skaliert)
   // ---------------------------------------------------------------------------
-  const W = 400, H = 720;
-  const DANGER_Y = 200;               // rote Linie
+  // Fast quadratischer Kasten mit abgeschrägten unteren Ecken und Seiten-Bumpern
+  const W = 400, H = 450;
+  const BEVEL = 34;
+  const BUMPERS = [{ x: -8, y: 205, r: 30 }, { x: W + 8, y: 205, r: 30 }];
+  const DANGER_Y = 92;                // rote Linie
   const DANGER_TIME = 3.0;            // Sekunden über der Linie bis Game Over
-  const CANNON = { x: W / 2, y: 74 };
-  const GRAVITY = 1500;
+  const CANNON = { x: W / 2, y: 36 };
+  const GRAVITY = 1300;
   const STEP = 1 / 60;
   const SUBSTEPS = 4;
   const HS = STEP / SUBSTEPS;
-  const ITER = 2;
-  const DAMP = 0.9993;
-  const SHOT_SPEED = 860;
-  const COOLDOWN = 0.5;
+  const ITER = 3;
+  const DAMP = 0.9990;
+  const SHOT_SPEED = 720;
+  const COOLDOWN = 0.45;
+  const INNER_DAMP = 0.97;           // innere Dämpfung (Schleim)
+  const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
 
-  const LEVELS = [
-    { r: 16, c: '#ff6b81', d: '#b8304a' },
-    { r: 20, c: '#ffa94d', d: '#c4650f' },
-    { r: 25, c: '#ffe066', d: '#b89317' },
-    { r: 31, c: '#8ce99a', d: '#2f9246' },
-    { r: 39, c: '#66d9e8', d: '#16889a' },
-    { r: 49, c: '#74c0fc', d: '#2a6fb8' },
-    { r: 61, c: '#b197fc', d: '#6145c4' },
-    { r: 76, c: '#f783ac', d: '#b53b70' },
-    { r: 95, c: '#ff8787', d: '#bd3b3b' },
-    { r: 119,c: '#63e6be', d: '#0f9470' },
-    { r: 149,c: '#ffd43b', d: '#c98f00' },
+  // Zahlen-Blobs: 2, 4, 8 … gleiche Zahlen verschmelzen zur doppelten
+  const PALETTE = [
+    '#ffd93d', '#ff9f43', '#4be3b0', '#4d8df7', '#9b5cff', '#ff5fa2', '#ff7b3a',
+    '#d8f24a', '#6ef06a', '#3fd0ff', '#ff4d6d', '#c84bff', '#ffffff', '#ffb3f0',
   ];
+  const LEVELS = PALETTE.map((c, i) => ({ v: Math.pow(2, i + 1), r: Math.round(17 * Math.pow(1.165, i)), c }));
   const MAX_LEVEL = LEVELS.length - 1;
-  const SPAWN_WEIGHTS = [32, 27, 20, 13, 8];
-  const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]; // Pentatonik
+  const SPAWN_WEIGHTS = [30, 26, 20, 14, 10];
+  const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31]; // Pentatonik
 
   const CFG = window.BLOBBO_CONFIG || {};
   const ONLINE_URL = (CFG.firebaseUrl || '').replace(/\/+$/, '');
@@ -157,7 +155,7 @@
       this.level = level;
       const L = LEVELS[level];
       this.R = L.r;
-      const n = this.n = 12 + Math.min(level, 10);
+      const n = this.n = Math.min(32, 18 + level);
       this.x = new Float32Array(n); this.y = new Float32Array(n);
       this.px = new Float32Array(n); this.py = new Float32Array(n);
       this.rx = new Float32Array(n); this.ry = new Float32Array(n);
@@ -167,12 +165,15 @@
         this.x[i] = this.px[i] = x + this.rx[i] * scale;
         this.y[i] = this.py[i] = y + this.ry[i] * scale;
       }
+      // Fläche des Ring-Polygons (positiv bei dieser Punktreihenfolge im y-nach-unten-System)
+      this.area0 = 0.5 * n * this.R * this.R * Math.sin((2 * Math.PI) / n);
+      this.edge0 = 2 * this.R * Math.sin(Math.PI / n);
       this.invMass = n / (this.R * this.R);
-      this.k = 0.15 - level * 0.008;     // große Blobs sind weicher
+      this.k = 0.018;                  // nur schwacher Formerhalt -> sehr weich
       this.cx = x; this.cy = y; this.ang = 0;
       this.age = 0; this.dead = false;
       this.lastVx = 0; this.lastVy = 0; this.prevCx = x; this.prevCy = y;
-      this.blink = rand(1, 5); this.surprise = 0; this.wob = rand(0, 6);
+      this.flash = 0;
     }
     setVel(vx, vy) {
       for (let i = 0; i < this.n; i++) { this.px[i] = this.x[i] - vx * HS; this.py[i] = this.y[i] - vy * HS; }
@@ -183,11 +184,56 @@
       this.cx = sx / this.n; this.cy = sy / this.n;
     }
     integrate() {
-      const g = GRAVITY * HS * HS;
-      for (let i = 0; i < this.n; i++) {
-        const vx = (this.x[i] - this.px[i]) * DAMP, vy = (this.y[i] - this.py[i]) * DAMP;
+      const g = GRAVITY * HS * HS, n = this.n;
+      // mittlere Geschwindigkeit: Abweichungen davon (Drehen, Zittern) werden gedämpft
+      let mx = 0, my = 0;
+      for (let i = 0; i < n; i++) { mx += this.x[i] - this.px[i]; my += this.y[i] - this.py[i]; }
+      mx /= n; my /= n;
+      for (let i = 0; i < n; i++) {
+        let vx = this.x[i] - this.px[i], vy = this.y[i] - this.py[i];
+        vx = (mx + (vx - mx) * INNER_DAMP) * DAMP;
+        vy = (my + (vy - my) * INNER_DAMP) * DAMP;
+        const v2 = vx * vx + vy * vy;
+        if (v2 > VMAX * VMAX) { const f = VMAX / Math.sqrt(v2); vx *= f; vy *= f; }
         this.px[i] = this.x[i]; this.py[i] = this.y[i];
         this.x[i] += vx; this.y[i] += vy + g;
+      }
+    }
+    // Druck: Fläche bleibt erhalten (wie ein Wasserballon)
+    pressure() {
+      const n = this.n, x = this.x, y = this.y;
+      let A = 0;
+      for (let i = 0, j = n - 1; i < n; j = i++) A += x[j] * y[i] - x[i] * y[j];
+      A *= 0.5;
+      const C = this.area0 - A;
+      let sum = 0;
+      const gx = this._gx || (this._gx = new Float32Array(n)), gy = this._gy || (this._gy = new Float32Array(n));
+      for (let i = 0; i < n; i++) {
+        const p = i === 0 ? n - 1 : i - 1, q = i === n - 1 ? 0 : i + 1;
+        gx[i] = 0.5 * (y[q] - y[p]); gy[i] = 0.5 * (x[p] - x[q]);
+        sum += gx[i] * gx[i] + gy[i] * gy[i];
+      }
+      if (sum < 1e-9) return;
+      const lam = C / sum;
+      for (let i = 0; i < n; i++) { x[i] += lam * gx[i]; y[i] += lam * gy[i]; }
+    }
+    // Hautspannung: Kanten dürfen sich etwas dehnen/stauchen
+    edges() {
+      const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.22, mn = this.edge0 * 0.5;
+      for (let i = 0; i < n; i++) {
+        const j = i === n - 1 ? 0 : i + 1;
+        const dx = x[j] - x[i], dy = y[j] - y[i];
+        const d = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+        let t = 0;
+        if (d > mx) t = mx; else if (d < mn) t = mn; else continue;
+        const c = (d - t) / d * 0.5;
+        x[i] += dx * c; y[i] += dy * c; x[j] -= dx * c; y[j] -= dy * c;
+      }
+      // Umriss glätten, damit nichts zerknittert
+      for (let i = 0; i < n; i++) {
+        const p = i === 0 ? n - 1 : i - 1, q = i === n - 1 ? 0 : i + 1;
+        x[i] += ((x[p] + x[q]) * 0.5 - x[i]) * 0.1;
+        y[i] += ((y[p] + y[q]) * 0.5 - y[i]) * 0.1;
       }
     }
     shapeMatch() {
@@ -212,15 +258,21 @@
       for (let i = 0; i < this.n; i++) {
         let x = this.x[i], y = this.y[i];
         if (y > H) {
-          const vy = y - this.py[i]; y = H; this.py[i] = y + vy * 0.2;
-          this.px[i] = x - (x - this.px[i]) * 0.85;   // Reibung am Boden
-        } else if (y < 0) { y = 0; this.py[i] = y; }
-        if (x < 0) {
-          const vx = x - this.px[i]; x = 0; this.px[i] = x + vx * 0.2;
-          this.py[i] = y - (y - this.py[i]) * 0.92;
-        } else if (x > W) {
-          const vx = x - this.px[i]; x = W; this.px[i] = x + vx * 0.2;
-          this.py[i] = y - (y - this.py[i]) * 0.92;
+          y = H;
+          this.px[i] = x - (x - this.px[i]) * 0.97;  // leichte Bodenreibung
+        } else if (y < -200) { y = -200; }
+        if (x < 0) x = 0; else if (x > W) x = W;
+        // abgeschrägte Ecken unten
+        let d = x + (H - y) - BEVEL;               // links unten
+        if (d < 0) { x -= d * 0.5; y += d * 0.5; }
+        d = (W - x) + (H - y) - BEVEL;             // rechts unten
+        if (d < 0) { x += d * 0.5; y += d * 0.5; }
+        for (const b of BUMPERS) {
+          const dx = x - b.x, dy = y - b.y, dd = dx * dx + dy * dy;
+          if (dd < b.r * b.r) {
+            const l = Math.sqrt(dd) || 1e-6;
+            x = b.x + (dx / l) * b.r; y = b.y + (dy / l) * b.r;
+          }
         }
         this.x[i] = x; this.y[i] = y;
       }
@@ -248,6 +300,14 @@
       if (dx0 * dx0 + dy0 * dy0 > lim) continue;
       if (!inside(B, px, py)) continue;
       hit = true;
+      const dd0 = Math.sqrt(dx0 * dx0 + dy0 * dy0);
+      if (dd0 < B.R * 0.45) {
+        // steckt tief drin: radial nach außen schieben
+        const l = dd0 || 1e-6, ux = dd0 ? dx0 / l : 0, uy = dd0 ? dy0 / l : -1;
+        const push = (B.R * 0.45 - dd0) * 0.5;
+        A.x[i] += ux * push; A.y[i] += uy * push;
+        continue;
+      }
       let best = Infinity, bj = 0, bt = 0, bqx = 0, bqy = 0;
       for (let j = 0; j < B.n; j++) {
         const k = j + 1 === B.n ? 0 : j + 1;
@@ -289,7 +349,7 @@
   const G = {
     state: 'menu', blobs: [], parts: [], floats: [],
     score: 0, best: store.get('blobbo_best', 0),
-    cur: 0, next: 0, cooldown: 0,
+    queue: [0, 1, 2], cooldown: 0,
     aim: Math.PI / 2, aiming: false,
     danger: 0, warnTick: 0, combo: 0, comboTimer: 0,
     shake: 0, time: 0, maxLevel: 0, overTimer: 0,
@@ -297,8 +357,8 @@
   let username = store.get('blobbo_name', '');
 
   function randomLevel() {
-    // am Anfang nur kleine, später bis Stufe 4
-    const cap = clamp(G.maxLevel, 2, SPAWN_WEIGHTS.length - 1);
+    // am Anfang nur 2/4/8, später bis 32
+    const cap = clamp(G.maxLevel - 2, 2, SPAWN_WEIGHTS.length - 1);
     let tot = 0;
     for (let i = 0; i <= cap; i++) tot += SPAWN_WEIGHTS[i];
     let r = Math.random() * tot;
@@ -310,7 +370,7 @@
     G.blobs = []; G.parts = []; G.floats = [];
     G.score = 0; G.cooldown = 0; G.danger = 0; G.combo = 0; G.comboTimer = 0;
     G.maxLevel = 0; G.aim = Math.PI / 2; G.aiming = false; G.overTimer = 0;
-    G.cur = randomLevel(); G.next = randomLevel();
+    G.queue = [randomLevel(), randomLevel(), randomLevel()];
     G.state = 'playing';
     updateHud();
     show(null);
@@ -320,11 +380,12 @@
   function shoot() {
     if (G.state !== 'playing' || G.cooldown > 0) return;
     const dx = Math.cos(G.aim), dy = Math.sin(G.aim);
-    const b = new Blob(CANNON.x + dx * 26, CANNON.y + dy * 26, G.cur);
+    const lvl = G.queue.shift();
+    G.queue.push(randomLevel());
+    const off = Math.min(LEVELS[lvl].r, 24) + 4;
+    const b = new Blob(CANNON.x + dx * off, CANNON.y + dy * off, lvl, 0.8);
     b.setVel(dx * SHOT_SPEED, dy * SHOT_SPEED);
-    b.shot = true;
     G.blobs.push(b);
-    G.cur = G.next; G.next = randomLevel();
     G.cooldown = COOLDOWN;
     Sound.shoot();
     vibrate(8);
@@ -340,7 +401,7 @@
   function burst(x, y, color, count, power) {
     for (let i = 0; i < count; i++) {
       const a = rand(0, Math.PI * 2), s = rand(0.3, 1) * power;
-      G.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - power * 0.3, r: rand(2, 6), life: rand(0.4, 0.9), t: 0, c: color });
+      G.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - power * 0.3, r: rand(2, 5), life: rand(0.35, 0.8), t: 0, c: color });
     }
   }
 
@@ -355,23 +416,22 @@
     const mult = Math.min(G.combo, 8);
     if (lvl < MAX_LEVEL) {
       const nl = lvl + 1, R = LEVELS[nl].r;
-      const nx = clamp(cx, R + 1, W - R - 1), ny = Math.min(cy, H - R - 1);
-      const nb = new Blob(nx, ny, nl, 0.7);
-      nb.setVel(vx * 0.4, vy * 0.4 - 120);
-      nb.age = 1; nb.surprise = 0.6;
+      const nx = clamp(cx, R * 0.7, W - R * 0.7), ny = Math.min(cy, H - R * 0.7);
+      const nb = new Blob(nx, ny, nl, 0.75);
+      nb.setVel(vx * 0.3, vy * 0.3 - 60);
+      nb.age = 1; nb.flash = 1;
       G.blobs.push(nb);
       G.maxLevel = Math.max(G.maxLevel, nl);
-      const pts = ((nl + 1) * (nl + 2)) / 2 * mult;
-      addScore(pts, nx, ny - R, LEVELS[nl].c);
-      burst(nx, ny, LEVELS[lvl].c, 10 + nl * 3, 120 + nl * 25);
-      G.shake = Math.max(G.shake, 1 + nl * 0.9);
+      const pts = LEVELS[nl].v * mult;
+      addScore(pts, nx, ny - R * 0.6, LEVELS[nl].c);
+      burst(nx, ny, LEVELS[lvl].c, 8 + nl * 2, 110 + nl * 18);
+      G.shake = Math.max(G.shake, nl * 0.6);
       Sound.merge(nl, G.combo);
-      vibrate(nl >= 6 ? [20, 30, 20] : 15);
+      vibrate(nl >= 8 ? [20, 30, 20] : 15);
     } else {
-      // zwei Riesen = Mega-Bonus, beide verschwinden
-      addScore(500 * mult, cx, cy - 60, '#ffffff');
-      for (let i = 0; i < 5; i++) burst(cx + rand(-60, 60), cy + rand(-60, 60), LEVELS[i * 2].c, 20, 400);
-      G.shake = 14;
+      addScore(LEVELS[MAX_LEVEL].v * 2 * mult, cx, cy - 60, '#ffffff');
+      for (let i = 0; i < 6; i++) burst(cx + rand(-60, 60), cy + rand(-60, 60), LEVELS[i * 2].c, 20, 380);
+      G.shake = 12;
       Sound.mega();
       vibrate([40, 40, 80]);
     }
@@ -394,15 +454,15 @@
     for (let s = 0; s < SUBSTEPS; s++) {
       for (let i = 0; i < n; i++) blobs[i].integrate();
       for (let it = 0; it < ITER; it++) {
-        for (let i = 0; i < n; i++) { blobs[i].shapeMatch(); blobs[i].walls(); }
+        for (let i = 0; i < n; i++) { const b = blobs[i]; b.shapeMatch(); b.edges(); b.pressure(); b.walls(); }
         for (let i = 0; i < n; i++) {
           const A = blobs[i];
           for (let j = i + 1; j < n; j++) {
             const B = blobs[j];
-            const dx = A.cx - B.cx, dy = A.cy - B.cy, rr = (A.R + B.R) * 1.25;
+            const dx = A.cx - B.cx, dy = A.cy - B.cy, rr = (A.R + B.R) * 1.45;
             if (dx * dx + dy * dy > rr * rr) continue;
             const h1 = pushOut(A, B), h2 = pushOut(B, A);
-            if ((h1 || h2) && A.level === B.level && !A.dead && !B.dead) merges.push([A, B]);
+            if (A.level === B.level && !A.dead && !B.dead && (h1 || h2 || near(A, B))) merges.push([A, B]);
           }
         }
       }
@@ -412,6 +472,19 @@
     if (merges.length) G.blobs = G.blobs.filter((b) => !b.dead);
   }
 
+  // berühren sich zwei Blobs (auch ohne Überlappung)?
+  function near(A, B) {
+    for (let i = 0; i < A.n; i++) {
+      for (let j = 0; j < B.n; j++) {
+        const dx = A.x[i] - B.x[j], dy = A.y[i] - B.y[j];
+        if (dx * dx + dy * dy < 9) return true;
+      }
+    }
+    return false;
+  }
+
+  function topOf(b) { let m = Infinity; for (let i = 0; i < b.n; i++) if (b.y[i] < m) m = b.y[i]; return m; }
+
   function update(dt) {
     G.time += dt;
     if (G.state === 'playing' || G.state === 'over') {
@@ -420,21 +493,19 @@
       G.comboTimer = Math.max(0, G.comboTimer - dt);
       if (G.comboTimer === 0) G.combo = 0;
 
-      // Aufprall-Geräusche + Gesichter
       for (const b of G.blobs) {
         b.age += dt;
         const vx = (b.cx - b.prevCx) / dt, vy = (b.cy - b.prevCy) / dt;
         const dv = Math.hypot(vx - b.lastVx, vy - b.lastVy);
-        if (G.state === 'playing' && dv > 260 && b.age > 0.05) Sound.squish(dv / 1400);
+        if (G.state === 'playing' && dv > 220 && b.age > 0.05) Sound.squish(dv / 1200);
         b.lastVx = vx; b.lastVy = vy;
-        b.blink -= dt; if (b.blink < -0.12) b.blink = rand(2, 6);
-        b.surprise = Math.max(0, b.surprise - dt);
+        b.flash = Math.max(0, b.flash - dt * 3);
       }
 
       // Gefahrenlinie
       if (G.state === 'playing') {
         let over = false;
-        for (const b of G.blobs) if (b.age > 1.2 && b.cy - b.R < DANGER_Y) { over = true; break; }
+        for (const b of G.blobs) if (b.age > 1.2 && topOf(b) < DANGER_Y) { over = true; break; }
         if (over) {
           G.danger += dt;
           G.warnTick -= dt;
@@ -457,15 +528,24 @@
   // ---------------------------------------------------------------------------
   // Zeichnen
   // ---------------------------------------------------------------------------
+  const FRAME = 16;
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     cw = window.innerWidth; ch = window.innerHeight;
     canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
-    const topPad = 100, botPad = 12;
-    scale = Math.min((cw - 16) / W, (ch - topPad - botPad) / H);
+    const topPad = 100, botPad = 16;
+    scale = Math.min((cw - 12) / (W + FRAME * 2), (ch - topPad - botPad) / (H + FRAME * 2));
     offX = (cw - W * scale) / 2;
     offY = topPad + (ch - topPad - botPad - H * scale) / 2;
   }
+
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const m = (v) => Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f);
+    return 'rgb(' + m(r) + ',' + m(g) + ',' + m(b) + ')';
+  }
+  LEVELS.forEach((L) => { L.d = shade(L.c, -0.35); L.l = shade(L.c, 0.45); });
 
   function blobPath(c, b) {
     const n = b.n, x = b.x, y = b.y;
@@ -478,72 +558,59 @@
     c.closePath();
   }
 
-  function drawFace(c, x, y, R, ang, lookX, lookY, blink, surprise) {
-    c.save();
-    c.translate(x, y);
-    c.rotate(ang * 0.6);
-    const er = Math.max(2.6, R * 0.17), sp = R * 0.34, ey = -R * 0.08;
-    const open = blink < 0 ? 0.15 : 1;
-    let lx = lookX - x, ly = lookY - y;
-    const ll = Math.hypot(lx, ly) || 1; lx /= ll; ly /= ll;
-    for (const s of [-1, 1]) {
-      c.fillStyle = '#fff';
-      c.beginPath(); c.ellipse(s * sp, ey, er, er * 1.15 * open, 0, 0, Math.PI * 2); c.fill();
-      if (open > 0.5) {
-        c.fillStyle = '#231942';
-        const pr = er * 0.55;
-        c.beginPath(); c.arc(s * sp + lx * er * 0.35, ey + ly * er * 0.4, pr, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#fff';
-        c.beginPath(); c.arc(s * sp + lx * er * 0.35 - pr * 0.35, ey + ly * er * 0.4 - pr * 0.4, pr * 0.35, 0, Math.PI * 2); c.fill();
-      }
-    }
-    c.strokeStyle = 'rgba(35,25,66,.85)'; c.fillStyle = 'rgba(35,25,66,.85)';
-    c.lineWidth = Math.max(1.6, R * 0.07); c.lineCap = 'round';
-    if (surprise > 0) {
-      c.beginPath(); c.ellipse(0, R * 0.28, R * 0.1, R * 0.13, 0, 0, Math.PI * 2); c.fill();
-    } else {
-      c.beginPath(); c.arc(0, R * 0.16, R * 0.17, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
-    }
-    // Bäckchen
-    c.fillStyle = 'rgba(255,120,150,.35)';
-    c.beginPath(); c.ellipse(-sp * 1.45, R * 0.18, R * 0.12, R * 0.07, 0, 0, Math.PI * 2); c.fill();
-    c.beginPath(); c.ellipse(sp * 1.45, R * 0.18, R * 0.12, R * 0.07, 0, 0, Math.PI * 2); c.fill();
+  function label(c, x, y, R, level, ang) {
+    const txt = String(LEVELS[level].v);
+    const size = Math.min(R * 0.62, (R * 1.5) / txt.length);
+    c.save(); c.translate(x, y); c.rotate(ang);
+    c.font = '700 ' + size.toFixed(1) + 'px Fredoka, sans-serif';
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = 'rgba(20,16,40,.82)';
+    c.fillText(txt, 0, size * 0.05);
     c.restore();
   }
 
   function drawBlob(c, b) {
     const L = LEVELS[b.level];
     blobPath(c, b);
-    const g = c.createRadialGradient(b.cx - b.R * 0.35, b.cy - b.R * 0.4, b.R * 0.1, b.cx, b.cy, b.R * 1.15);
-    g.addColorStop(0, '#ffffff');
-    g.addColorStop(0.18, L.c);
-    g.addColorStop(1, L.d);
-    c.fillStyle = g; c.fill();
-    c.lineWidth = 3; c.strokeStyle = L.d; c.stroke();
-    // Glanz
-    c.fillStyle = 'rgba(255,255,255,.45)';
-    c.beginPath(); c.ellipse(b.cx - b.R * 0.42, b.cy - b.R * 0.5, b.R * 0.2, b.R * 0.11, -0.6, 0, Math.PI * 2); c.fill();
-    drawFace(c, b.cx, b.cy, b.R, b.ang, CANNON.x, CANNON.y, b.blink, b.surprise);
+    c.fillStyle = L.c; c.fill();
+    c.lineJoin = 'round';
+    c.lineWidth = 2.5; c.strokeStyle = L.d; c.stroke();
+    // weicher Glanz oben links
+    c.save(); c.clip();
+    c.fillStyle = 'rgba(255,255,255,.22)';
+    c.beginPath(); c.ellipse(b.cx - b.R * 0.35, b.cy - b.R * 0.45, b.R * 0.45, b.R * 0.25, -0.5, 0, Math.PI * 2); c.fill();
+    if (b.flash > 0) { c.fillStyle = 'rgba(255,255,255,' + (b.flash * 0.8).toFixed(2) + ')'; c.fillRect(b.cx - b.R * 2, b.cy - b.R * 2, b.R * 4, b.R * 4); }
+    c.restore();
+    label(c, b.cx, b.cy, b.R, b.level, b.ang);
   }
 
-  // Statischer Blob (für Kanone / Vorschau)
-  function drawStatic(c, x, y, level, s = 1, t = 0) {
-    const L = LEVELS[level], R = L.r * s;
-    const wob = Math.sin(t * 4) * 0.04;
+  // Statischer Blob (Warteschlange / Menü)
+  function drawStatic(c, x, y, level, R, t = 0) {
+    const L = LEVELS[level];
+    const wob = Math.sin(t * 4) * 0.05;
     c.save(); c.translate(x, y); c.scale(1 + wob, 1 - wob);
-    const g = c.createRadialGradient(-R * 0.35, -R * 0.4, R * 0.1, 0, 0, R * 1.15);
-    g.addColorStop(0, '#fff'); g.addColorStop(0.18, L.c); g.addColorStop(1, L.d);
-    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
-    c.lineWidth = 3 * Math.min(1, s + 0.3); c.strokeStyle = L.d; c.stroke();
+    c.fillStyle = L.c; c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.fill();
+    c.lineWidth = Math.max(1.5, R * 0.1); c.strokeStyle = L.d; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.22)';
+    c.beginPath(); c.ellipse(-R * 0.35, -R * 0.42, R * 0.4, R * 0.22, -0.5, 0, Math.PI * 2); c.fill();
     c.restore();
-    drawFace(c, x, y, R, 0, x, y + 10, 1, 0);
+    label(c, x, y, R, level, 0);
+  }
+
+  function containerPath(c, g) {
+    c.beginPath();
+    c.moveTo(-g, -g); c.lineTo(W + g, -g); c.lineTo(W + g, H - BEVEL + g * 0.4);
+    c.lineTo(W - BEVEL + g * 0.4, H + g); c.lineTo(BEVEL - g * 0.4, H + g); c.lineTo(-g, H - BEVEL + g * 0.4);
+    c.closePath();
   }
 
   function drawTrajectory(c) {
-    let x = CANNON.x + Math.cos(G.aim) * 26, y = CANNON.y + Math.sin(G.aim) * 26;
+    const R = LEVELS[G.queue[0]].r * 0.8;
+    const off = Math.min(LEVELS[G.queue[0]].r, 24) + 4;
+    let x = CANNON.x + Math.cos(G.aim) * off, y = CANNON.y + Math.sin(G.aim) * off;
     let vx = Math.cos(G.aim) * SHOT_SPEED, vy = Math.sin(G.aim) * SHOT_SPEED;
-    const R = LEVELS[G.cur].r, dt = 1 / 60;
-    c.fillStyle = 'rgba(255,255,255,.75)';
+    const dt = 1 / 60;
+    c.fillStyle = 'rgba(255,255,255,.8)';
     for (let i = 0; i < 40; i++) {
       for (let k = 0; k < 2; k++) {
         vy += GRAVITY * dt * 0.5; x += vx * dt * 0.5; y += vy * dt * 0.5;
@@ -552,15 +619,14 @@
       }
       if (y > H - R) break;
       let hit = false;
-      for (const b of G.blobs) { if (Math.hypot(b.cx - x, b.cy - y) < b.R + R * 0.9) { hit = true; break; } }
+      for (const b of G.blobs) { if (Math.hypot(b.cx - x, b.cy - y) < b.R + R * 0.85) { hit = true; break; } }
       if (i % 2 === 0) {
         c.globalAlpha = 1 - i / 44;
-        c.beginPath(); c.arc(x, y, 3.2, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(x, y, 2.6, 0, Math.PI * 2); c.fill();
       }
       if (hit) {
-        c.globalAlpha = 0.5;
-        c.strokeStyle = '#fff'; c.lineWidth = 2; c.setLineDash([5, 5]);
-        c.beginPath(); c.arc(x, y, R, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+        c.globalAlpha = 0.9;
+        c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.fill();
         break;
       }
     }
@@ -570,44 +636,54 @@
   function render() {
     const c = ctx;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // Hintergrund
+    // Hintergrund: Sternenhimmel
     const bg = c.createLinearGradient(0, 0, 0, ch);
     bg.addColorStop(0, '#2a1f6b'); bg.addColorStop(1, '#130e33');
     c.fillStyle = bg; c.fillRect(0, 0, cw, ch);
-    // Deko-Punkte
-    c.fillStyle = 'rgba(255,255,255,.05)';
-    for (let i = 0; i < 30; i++) {
-      const x = (i * 137.5) % cw, y = ((i * 89.3 + G.time * (8 + (i % 5) * 3)) % (ch + 40)) - 20;
-      c.beginPath(); c.arc(x, ch - y, 2 + (i % 4) * 2, 0, Math.PI * 2); c.fill();
+    for (let i = 0; i < 60; i++) {
+      const x = (i * 137.5) % cw, y = (i * 211.7) % ch;
+      c.globalAlpha = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(G.time * 1.5 + i));
+      c.fillStyle = '#fff';
+      c.beginPath(); c.arc(x, y, (i % 3) * 0.6 + 0.7, 0, Math.PI * 2); c.fill();
     }
+    c.globalAlpha = 1;
 
     const sx = (Math.random() - 0.5) * G.shake, sy = (Math.random() - 0.5) * G.shake;
     c.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (offX + sx * scale), dpr * (offY + sy * scale));
 
-    // Glas / Kasten
-    c.fillStyle = 'rgba(255,255,255,.06)';
-    roundRect(c, -6, -6, W + 12, H + 12, 22); c.fill();
-    c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 5;
-    roundRect(c, -6, -6, W + 12, H + 12, 22); c.stroke();
+    // Rahmen
+    containerPath(c, FRAME); c.fillStyle = '#2b2838'; c.fill();
+    c.lineWidth = 3; c.strokeStyle = '#4a4560'; c.stroke();
+    containerPath(c, 4); c.fillStyle = '#1a1824'; c.fill();
+    containerPath(c, 0); c.fillStyle = '#07060c'; c.fill();
+    // Schiene oben
+    c.fillStyle = '#5a5570';
+    roundRect(c, 10, -10, 120, 5, 2.5); c.fill();
+    roundRect(c, W - 130, -10, 120, 5, 2.5); c.fill();
+    // Bumper
+    for (const b of BUMPERS) {
+      c.fillStyle = '#3d3a4f'; c.strokeStyle = '#5a5570'; c.lineWidth = 2;
+      c.beginPath(); c.arc(b.x, b.y, b.r, 0, Math.PI * 2); c.fill(); c.stroke();
+    }
+
     c.save();
-    roundRect(c, -3, -3, W + 6, H + 6, 20); c.clip();
+    containerPath(c, 0); c.clip();
 
     // Gefahrenlinie
     const dangerK = G.danger / DANGER_TIME;
     const pulse = dangerK > 0 ? 0.5 + 0.5 * Math.sin(G.time * 18) : 0;
     if (dangerK > 0) {
-      c.fillStyle = `rgba(255,60,80,${0.08 + 0.12 * pulse * dangerK})`;
+      c.fillStyle = `rgba(255,60,80,${0.1 + 0.15 * pulse * dangerK})`;
       c.fillRect(0, 0, W, DANGER_Y);
     }
-    c.strokeStyle = dangerK > 0 ? `rgba(255,70,90,${0.6 + 0.4 * pulse})` : 'rgba(255,90,110,.45)';
-    c.lineWidth = 3; c.setLineDash([12, 10]);
+    c.strokeStyle = dangerK > 0 ? `rgba(255,70,90,${0.6 + 0.4 * pulse})` : 'rgba(255,90,110,.35)';
+    c.lineWidth = 2; c.setLineDash([10, 9]);
     c.beginPath(); c.moveTo(0, DANGER_Y); c.lineTo(W, DANGER_Y); c.stroke(); c.setLineDash([]);
 
     if (G.state === 'playing' && G.aiming) drawTrajectory(c);
 
     for (const b of G.blobs) drawBlob(c, b);
 
-    // Partikel
     for (const p of G.parts) {
       c.globalAlpha = 1 - p.t / p.life;
       c.fillStyle = p.c;
@@ -615,42 +691,42 @@
     }
     c.globalAlpha = 1;
 
-    // Kanone
-    if (G.state !== 'menu') {
-      c.save(); c.translate(CANNON.x, CANNON.y); c.rotate(G.aim - Math.PI / 2);
-      c.fillStyle = '#4c3fb0'; c.strokeStyle = '#1b1640'; c.lineWidth = 3;
-      roundRect(c, -18, 0, 36, 44, 10); c.fill(); c.stroke();
-      c.fillStyle = '#6c5ce7';
-      roundRect(c, -22, 36, 44, 12, 6); c.fill(); c.stroke();
-      c.restore();
-      c.fillStyle = '#3a2f86'; c.strokeStyle = '#1b1640'; c.lineWidth = 3;
-      c.beginPath(); c.arc(CANNON.x, CANNON.y, 30, 0, Math.PI * 2); c.fill(); c.stroke();
+    // Warteschlange oben: aktueller Blob am Werfer, dahinter die nächsten
+    if (G.state !== 'menu' && G.queue) {
       const ready = 1 - G.cooldown / COOLDOWN;
-      const sc = Math.min(1, 25 / LEVELS[G.cur].r) * (0.6 + 0.4 * ready);
-      drawStatic(c, CANNON.x, CANNON.y, G.cur, sc, G.time);
-      // Nächster
-      c.fillStyle = 'rgba(255,255,255,.1)';
-      c.beginPath(); c.arc(W - 40, 46, 26, 0, Math.PI * 2); c.fill();
-      c.fillStyle = 'rgba(255,255,255,.7)'; c.font = '700 11px Fredoka, sans-serif'; c.textAlign = 'center';
-      c.fillText('NÄCHSTER', W - 40, 88);
-      drawStatic(c, W - 40, 46, G.next, Math.min(1, 18 / LEVELS[G.next].r), G.time + 1);
+      const q = G.queue;
+      c.save(); c.translate(CANNON.x, CANNON.y); c.rotate(G.aim - Math.PI / 2);
+      c.fillStyle = 'rgba(255,255,255,.12)';
+      roundRect(c, -7, 0, 14, 34, 7); c.fill();
+      c.restore();
+      const r0 = Math.min(LEVELS[q[0]].r, 24) * (0.55 + 0.45 * ready);
+      drawStatic(c, CANNON.x, CANNON.y, q[0], r0, G.time);
+      let x = CANNON.x + 24 + 14;
+      for (let i = 1; i < q.length; i++) {
+        const r = Math.min(LEVELS[q[i]].r * 0.7, 15);
+        x += r;
+        c.globalAlpha = i === 1 ? 0.9 : 0.6;
+        drawStatic(c, x, CANNON.y - 6, q[i], r, G.time + i);
+        x += r + 8;
+      }
+      c.globalAlpha = 1;
     }
 
     // Punkte-Texte
-    c.textAlign = 'center';
+    c.textAlign = 'center'; c.textBaseline = 'alphabetic';
     for (const f of G.floats) {
       c.globalAlpha = 1 - f.t;
-      c.font = '700 26px Fredoka, sans-serif';
-      c.lineWidth = 5; c.strokeStyle = '#1b1640';
-      c.strokeText(f.txt, f.x, f.y - f.t * 50);
-      c.fillStyle = f.c; c.fillText(f.txt, f.x, f.y - f.t * 50);
+      c.font = '700 22px Fredoka, sans-serif';
+      c.lineWidth = 5; c.strokeStyle = '#07060c';
+      c.strokeText(f.txt, f.x, f.y - f.t * 45);
+      c.fillStyle = f.c; c.fillText(f.txt, f.x, f.y - f.t * 45);
     }
     c.globalAlpha = 1;
 
     if (dangerK > 0 && G.state === 'playing') {
-      c.font = '700 40px Fredoka, sans-serif'; c.lineWidth = 6; c.strokeStyle = '#1b1640';
+      c.font = '700 34px Fredoka, sans-serif'; c.lineWidth = 6; c.strokeStyle = '#07060c';
       const t = Math.ceil(DANGER_TIME - G.danger);
-      c.strokeText(String(t), W / 2, DANGER_Y - 16); c.fillStyle = '#ff5c74'; c.fillText(String(t), W / 2, DANGER_Y - 16);
+      c.strokeText(String(t), 60, DANGER_Y - 14); c.fillStyle = '#ff5c74'; c.fillText(String(t), 60, DANGER_Y - 14);
     }
     c.restore();
   }
@@ -667,14 +743,10 @@
     ec.width = 320 * r; ec.height = 56 * r;
     c.setTransform(r, 0, 0, r, 0, 0);
     c.clearRect(0, 0, 320, 56);
-    const rs = LEVELS.map((L) => Math.sqrt(L.r) * 2.2);
-    const gap = 2, total = rs.reduce((a, r) => a + r * 2 + gap, 0) - gap;
-    const f = Math.min(1, 312 / total, 26 / rs[rs.length - 1]);
-    let x = (320 - total * f) / 2;
+    // zwei Reihen à 7
     for (let i = 0; i < LEVELS.length; i++) {
-      const rr = rs[i] * f;
-      drawStatic(c, x + rr, 28, i, rr / LEVELS[i].r);
-      x += rr * 2 + gap * f;
+      const row = Math.floor(i / 7), col = i % 7;
+      drawStatic(c, 25 + col * 45, 14 + row * 28, i, 12.5);
     }
   }
 
@@ -896,7 +968,6 @@
   soundLabels();
   drawEvolution();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawEvolution);
-  G.cur = 0; G.next = 1;
   requestAnimationFrame(loop);
 
   // für Tests

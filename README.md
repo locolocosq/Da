@@ -1,11 +1,11 @@
 # Blobbo 🟣
 
-Ein Physik-Merge-Spiel fürs Handy: Schieß weiche Schleim-Blobs in den Kasten.
-Zwei gleiche Blobs, die sich berühren, verschmelzen zum nächstgrößeren.
+Ein Physik-Merge-Spiel fürs Handy: Schieß weiche Zahlen-Blobs in den Kasten.
+Zwei Blobs mit gleicher Zahl, die sich berühren, verschmelzen zur doppelten Zahl (2+2=4, 4+4=8 … bis 16384).
 Bleibt ein Blob zu lange über der roten Linie → Game Over.
 
-- Echte Soft-Body-Physik (Massepunkte + Shape-Matching), Blobs quetschen und wabbeln
-- 11 Blob-Stufen, zwei größte verschmelzen = Mega-Bonus
+- Echte Soft-Body-Physik (Massepunkte, Druck/Volumenerhalt, Hautspannung): Blobs quetschen sich wie Zellen aneinander
+- 14 Stufen (2 bis 16384), Warteschlange der nächsten Blobs, Kasten mit Bumpern
 - Combo-System für schnelle Merges
 - Synthetisierte Sounds + Hintergrundmusik (WebAudio, keine Dateien), Vibration
 - Username + Rangliste (lokal und optional weltweit)
