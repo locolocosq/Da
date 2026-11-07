@@ -1,6 +1,6 @@
-// Weltweite Rangliste: Nummer des jsonblob-Speichers (über setup.html angelegt).
+// Weltweite Rangliste: Schlüssel des Online-Speichers (über setup.html angelegt), z.B. "ec:abc123".
 // Leer lassen = nur Rangliste pro Gerät.
 window.BLOBBO_CONFIG = {
-  jsonblobId: "",
+  leaderboard: "",
   firebaseUrl: ""
 };

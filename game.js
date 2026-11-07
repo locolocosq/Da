@@ -38,9 +38,8 @@
   const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31]; // Pentatonik
 
   const CFG = window.BLOBBO_CONFIG || {};
-  const BLOB_ID = String(CFG.jsonblobId || '').replace(/[^A-Za-z0-9-]/g, '');
-  const BLOB_URL = BLOB_ID ? 'https://jsonblob.com/api/jsonBlob/' + BLOB_ID : '';
-  const ONLINE_URL = BLOB_URL || (CFG.firebaseUrl || '').replace(/\/+$/, '');
+  const STORE_KEY = window.BlobboStore && window.BlobboStore.parse(CFG.leaderboard) ? CFG.leaderboard : '';
+  const ONLINE_URL = STORE_KEY || (CFG.firebaseUrl || '').replace(/\/+$/, '');
 
   const $ = (id) => document.getElementById(id);
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -982,19 +981,12 @@
     },
     async submit(name, score) {
       if (!ONLINE_URL || score <= 0) return;
-      if (BLOB_URL) {
+      if (STORE_KEY) {
         // lesen, eigenen Eintrag einfügen, zurückschreiben
-        const res = await fetch(BLOB_URL, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+        const data = await BlobboStore.read(STORE_KEY);
         const list = this.clean((data && data.scores) || []);
         list.push({ name, score, ts: Date.now() });
-        const out = this.clean(list);
-        await fetch(BLOB_URL, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ app: 'blobbo', scores: out }),
-        });
+        await BlobboStore.write(STORE_KEY, { app: 'blobbo', scores: this.clean(list) });
         return;
       }
       await fetch(ONLINE_URL + '/scores.json', {
@@ -1003,10 +995,8 @@
       });
     },
     async online() {
-      if (BLOB_URL) {
-        const res = await fetch(BLOB_URL, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+      if (STORE_KEY) {
+        const data = await BlobboStore.read(STORE_KEY);
         return this.clean((data && data.scores) || []);
       }
       const res = await fetch(ONLINE_URL + '/scores.json?orderBy=%22score%22&limitToLast=100');
