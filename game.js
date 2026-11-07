@@ -38,7 +38,9 @@
   const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31]; // Pentatonik
 
   const CFG = window.BLOBBO_CONFIG || {};
-  const ONLINE_URL = (CFG.firebaseUrl || '').replace(/\/+$/, '');
+  const BLOB_ID = String(CFG.jsonblobId || '').replace(/[^A-Za-z0-9-]/g, '');
+  const BLOB_URL = BLOB_ID ? 'https://jsonblob.com/api/jsonBlob/' + BLOB_ID : '';
+  const ONLINE_URL = BLOB_URL || (CFG.firebaseUrl || '').replace(/\/+$/, '');
 
   const $ = (id) => document.getElementById(id);
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -966,20 +968,51 @@
       store.set('blobbo_scores', top);
       return top.indexOf(entry);
     },
+    // Einträge prüfen: nur gültige Namen/Punkte, pro Name der beste
+    clean(list) {
+      const best = new Map();
+      for (const e of Array.isArray(list) ? list : []) {
+        if (!e || typeof e.name !== 'string' || typeof e.score !== 'number' || !isFinite(e.score)) continue;
+        const name = cleanName(e.name), score = Math.max(0, Math.min(99999999, Math.floor(e.score)));
+        if (!name) continue;
+        const old = best.get(name);
+        if (!old || score > old.score) best.set(name, { name, score, ts: Number(e.ts) || 0 });
+      }
+      return [...best.values()].sort((a, b) => b.score - a.score).slice(0, 200);
+    },
     async submit(name, score) {
       if (!ONLINE_URL || score <= 0) return;
+      if (BLOB_URL) {
+        // lesen, eigenen Eintrag einfügen, zurückschreiben
+        const res = await fetch(BLOB_URL, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const list = this.clean((data && data.scores) || []);
+        list.push({ name, score, ts: Date.now() });
+        const out = this.clean(list);
+        await fetch(BLOB_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ app: 'blobbo', scores: out }),
+        });
+        return;
+      }
       await fetch(ONLINE_URL + '/scores.json', {
         method: 'POST',
         body: JSON.stringify({ name, score, ts: { '.sv': 'timestamp' } }),
       });
     },
     async online() {
+      if (BLOB_URL) {
+        const res = await fetch(BLOB_URL, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        return this.clean((data && data.scores) || []);
+      }
       const res = await fetch(ONLINE_URL + '/scores.json?orderBy=%22score%22&limitToLast=100');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      return Object.values(data || {})
-        .filter((e) => e && typeof e.name === 'string' && typeof e.score === 'number')
-        .sort((a, b) => b.score - a.score);
+      return this.clean(Object.values(data || {}));
     },
   };
 
@@ -1016,7 +1049,7 @@
     $('tabLocal').classList.toggle('active', boardTab === 'local');
     if (boardTab === 'local') { renderList(Board.local()); return; }
     if (!ONLINE_URL) {
-      renderList([], 'Weltweite Rangliste ist noch nicht eingerichtet (siehe README). Lokale Bestenliste unter „Dieses Gerät“.');
+      renderList([], 'Die weltweite Rangliste ist noch nicht eingerichtet. Deine Bestenliste findest du unter „Dieses Gerät“.');
       return;
     }
     renderList([], 'Lade…');
@@ -1058,8 +1091,8 @@
       try {
         await Board.submit(username, G.score);
         const list = await Board.online();
-        const pos = list.findIndex((e) => e.name === username && e.score === G.score);
-        if (pos >= 0) $('overInfo').textContent = info + ' · Weltweit Platz ' + (pos + 1);
+        const pos = list.findIndex((e) => e.name === username);
+        if (pos >= 0) $('overInfo').textContent = info + ' · Weltweit Platz ' + (pos + 1) + ' (dein Bestwert)';
       } catch (e) { /* offline */ }
     }
   }
