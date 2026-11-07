@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1640">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Blobbo</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div class="score-label">PUNKTE</div>
+      <div id="score">0</div>
+      <div class="best">Rekord: <span id="best">0</span></div>
+    </div>
+    <div class="hud-right">
+      <button id="btnSound" class="icon-btn" aria-label="Ton">🔊</button>
+      <button id="btnPause" class="icon-btn" aria-label="Pause">⏸</button>
+    </div>
+  </div>
+  <div id="combo" class="hidden"></div>
+  <div id="sniperHint" class="hidden">🎯 Tippe auf die Kugel, die weg soll</div>
+
+  <div id="jokers" class="hidden">
+    <button id="jkSniper" class="joker" aria-label="Sniper: eine Kugel entfernen"><span class="ic">🎯</span><span class="lb">Sniper</span><span class="cnt">1</span></button>
+    <button id="jkUndo" class="joker" aria-label="Zurück: letzten Wurf rückgängig"><span class="ic">↩️</span><span class="lb">Zurück</span><span class="cnt">1</span></button>
+    <button id="jkShake" class="joker" aria-label="Schütteln"><span class="ic">📳</span><span class="lb">Schütteln</span><span class="cnt">1</span></button>
+  </div>
+
+  <!-- Menü -->
+  <div id="menu" class="screen">
+    <div class="panel">
+      <h1 class="logo">Blobbo</h1>
+      <p class="tagline">Schieß die Schleim-Zahlen – 2+2=4, 4+4=8 … wie weit kommst du?</p>
+      <canvas id="evo" width="320" height="56"></canvas>
+      <label class="field">
+        <span>Dein Username</span>
+        <input id="nameInput" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z.B. BlobKing">
+      </label>
+      <button id="btnPlay" class="btn primary">▶ Spielen</button>
+      <button id="btnBoardMenu" class="btn">🏆 Rangliste</button>
+      <div class="row">
+        <button id="btnMusic" class="btn small">🎵 Musik: an</button>
+        <button id="btnSfx" class="btn small">🔊 Effekte: an</button>
+      </div>
+      <details class="howto">
+        <summary>So geht's</summary>
+        <ul>
+          <li>Tippe oder ziehe in den Kasten, um zu zielen. Loslassen = schießen.</li>
+          <li>Zwei Blobs mit der gleichen Zahl, die sich berühren, verschmelzen zur doppelten Zahl.</li>
+          <li>Schnelle Merges hintereinander geben Combo-Bonus.</li>
+          <li>Bleibt ein Blob 5 Sekunden über der roten Linie: Game Over!</li>
+          <li>Joker: 🎯 Sniper entfernt eine Kugel (ihre Punkte werden abgezogen), ↩️ Zurück macht den letzten Wurf rückgängig, 📳 Schütteln rüttelt alles durch. Alle 50.000 Punkte gibt es jeden Joker einmal dazu.</li>
+        </ul>
+      </details>
+      <a class="btn game-switch" href="./">🎮 Alle Spiele</a>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <h2>Pause</h2>
+      <button id="btnResume" class="btn primary">▶ Weiter</button>
+      <button id="btnRestart" class="btn">↻ Neustart</button>
+      <button id="btnToMenu" class="btn">☰ Menü</button>
+    </div>
+  </div>
+
+  <!-- Game Over -->
+  <div id="over" class="screen hidden">
+    <div class="panel">
+      <h2>Game Over</h2>
+      <div class="final-score" id="finalScore">0</div>
+      <div id="overInfo" class="info"></div>
+      <button id="btnAgain" class="btn primary">↻ Nochmal</button>
+      <button id="btnBoardOver" class="btn">🏆 Rangliste</button>
+      <button id="btnOverMenu" class="btn">☰ Menü</button>
+    </div>
+  </div>
+
+  <!-- Rangliste -->
+  <div id="board" class="screen hidden">
+    <div class="panel board-panel">
+      <h2>🏆 Rangliste</h2>
+      <div class="tabs">
+        <button id="tabOnline" class="tab">Weltweit</button>
+        <button id="tabLocal" class="tab">Dieses Gerät</button>
+      </div>
+      <ol id="boardList" class="board-list"></ol>
+      <button id="btnBoardBack" class="btn">← Zurück</button>
+    </div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="store.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

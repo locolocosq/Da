@@ -1,4 +1,14 @@
-# Blobbo 🟣
+# Blob Arcade 🎮
+
+Spielekatalog fürs Handy (Startseite `index.html`): Blob Defense, Blobbo, Horde Run – weitere folgen.
+Alle Spiele teilen Username, Sound-Einstellungen und den Online-Speicher der Rangliste (`kit.js`, `store.js`).
+
+## Blob Defense (`td.html`)
+
+Tower Defense: Kanone, Eis, Bombe, Laser bauen und bis Stufe 4 verbessern, endlose Wellen, Boss alle 10 Wellen,
+Tempo 1×/2×/3×, eigene weltweite Rangliste.
+
+## Blobbo (`blobbo.html`)
 
 Ein Physik-Merge-Spiel fürs Handy: Schieß weiche Zahlen-Blobs in den Kasten.
 Zwei Blobs mit gleicher Zahl, die sich berühren, verschmelzen zur doppelten Zahl (2+2=4, 4+4=8 … bis 16384).

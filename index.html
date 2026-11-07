@@ -2,109 +2,86 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1b1640">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Blobbo</title>
+<title>Blob Arcade</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<style>
+  :root { color-scheme: dark; --bg: #1b1640; --card: #2a2163; --line: rgba(255,255,255,.12); --fg: #fff; --muted: #c9c3f0; --gold: #ffd93d; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(120% 60% at 50% 0%, #3a2f86 0%, var(--bg) 60%) fixed, var(--bg); color: var(--fg);
+    font-family: "Fredoka", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 560px; margin: 0 auto; padding-block: calc(env(safe-area-inset-top) + 22px) calc(env(safe-area-inset-bottom) + 28px);
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  h1 { margin: 0; font-size: 46px; line-height: 1; text-wrap: balance;
+    background: linear-gradient(180deg, #ffe066, #ff8787 55%, #b197fc); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 4px 0 #15103a); }
+  .sub { margin: 8px 0 18px; color: var(--muted); }
+  .who { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; background: rgba(255,255,255,.08); padding: 6px 12px; border-radius: 999px; margin-bottom: 18px; }
+  .who[hidden] { display: none; }
+  .grid { display: grid; gap: 12px; }
+  .game { display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 20px; background: var(--card); border: 2px solid var(--line);
+    color: inherit; text-decoration: none; box-shadow: 0 6px 0 #15103a; transition: transform .1s; }
+  .game:active { transform: translateY(4px); box-shadow: 0 2px 0 #15103a; }
+  .game:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+  .art { flex: none; width: 76px; height: 76px; border-radius: 18px; display: grid; place-items: center; font-size: 40px; }
+  .txt { min-width: 0; flex: 1; }
+  .txt h2 { margin: 0; font-size: 21px; }
+  .txt p { margin: 3px 0 0; font-size: 14px; color: var(--muted); line-height: 1.35; }
+  .best { margin-top: 5px; font-size: 13px; color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .new { font-size: 11px; font-weight: 700; letter-spacing: .5px; background: #20c997; color: #fff; padding: 2px 7px; border-radius: 6px; vertical-align: middle; margin-left: 6px; }
+  .soon { opacity: .5; box-shadow: none; pointer-events: none; }
+  .soon .tag { font-size: 11px; font-weight: 700; letter-spacing: .5px; background: #4a4560; padding: 2px 7px; border-radius: 6px; vertical-align: middle; margin-left: 6px; }
+  .play { flex: none; font-size: 26px; }
+  h3 { margin: 26px 0 10px; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+</style>
 </head>
 <body>
-<div id="app">
-  <canvas id="game"></canvas>
+<div class="wrap">
+  <h1>Blob Arcade</h1>
+  <p class="sub">Kleine Spiele fürs Handy – mit weltweiter Rangliste.</p>
+  <div class="who" id="who" hidden>👤 <span id="whoName"></span></div>
 
-  <div id="hud" class="hidden">
-    <div class="hud-left">
-      <div class="score-label">PUNKTE</div>
-      <div id="score">0</div>
-      <div class="best">Rekord: <span id="best">0</span></div>
-    </div>
-    <div class="hud-right">
-      <button id="btnSound" class="icon-btn" aria-label="Ton">🔊</button>
-      <button id="btnPause" class="icon-btn" aria-label="Pause">⏸</button>
-    </div>
-  </div>
-  <div id="combo" class="hidden"></div>
-  <div id="sniperHint" class="hidden">🎯 Tippe auf die Kugel, die weg soll</div>
-
-  <div id="jokers" class="hidden">
-    <button id="jkSniper" class="joker" aria-label="Sniper: eine Kugel entfernen"><span class="ic">🎯</span><span class="lb">Sniper</span><span class="cnt">1</span></button>
-    <button id="jkUndo" class="joker" aria-label="Zurück: letzten Wurf rückgängig"><span class="ic">↩️</span><span class="lb">Zurück</span><span class="cnt">1</span></button>
-    <button id="jkShake" class="joker" aria-label="Schütteln"><span class="ic">📳</span><span class="lb">Schütteln</span><span class="cnt">1</span></button>
-  </div>
-
-  <!-- Menü -->
-  <div id="menu" class="screen">
-    <div class="panel">
-      <h1 class="logo">Blobbo</h1>
-      <p class="tagline">Schieß die Schleim-Zahlen – 2+2=4, 4+4=8 … wie weit kommst du?</p>
-      <canvas id="evo" width="320" height="56"></canvas>
-      <label class="field">
-        <span>Dein Username</span>
-        <input id="nameInput" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z.B. BlobKing">
-      </label>
-      <button id="btnPlay" class="btn primary">▶ Spielen</button>
-      <button id="btnBoardMenu" class="btn">🏆 Rangliste</button>
-      <div class="row">
-        <button id="btnMusic" class="btn small">🎵 Musik: an</button>
-        <button id="btnSfx" class="btn small">🔊 Effekte: an</button>
-      </div>
-      <details class="howto">
-        <summary>So geht's</summary>
-        <ul>
-          <li>Tippe oder ziehe in den Kasten, um zu zielen. Loslassen = schießen.</li>
-          <li>Zwei Blobs mit der gleichen Zahl, die sich berühren, verschmelzen zur doppelten Zahl.</li>
-          <li>Schnelle Merges hintereinander geben Combo-Bonus.</li>
-          <li>Bleibt ein Blob 5 Sekunden über der roten Linie: Game Over!</li>
-          <li>Joker: 🎯 Sniper entfernt eine Kugel (ihre Punkte werden abgezogen), ↩️ Zurück macht den letzten Wurf rückgängig, 📳 Schütteln rüttelt alles durch. Alle 50.000 Punkte gibt es jeden Joker einmal dazu.</li>
-        </ul>
-      </details>
-      <a class="btn game-switch" href="runner.html">🏃 Neues Spiel: Horde Run</a>
-    </div>
+  <div class="grid">
+    <a class="game" href="td.html">
+      <div class="art" style="background:linear-gradient(135deg,#36a065,#1c7ed6)">🏰</div>
+      <div class="txt"><h2>Blob Defense<span class="new">NEU</span></h2><p>Bau Türme und halte endlose Schleim-Wellen auf.</p><div class="best" data-k="td_best"></div></div>
+      <span class="play">▶</span>
+    </a>
+    <a class="game" href="blobbo.html">
+      <div class="art" style="background:linear-gradient(135deg,#b197fc,#ff5fa2)">🟣</div>
+      <div class="txt"><h2>Blobbo</h2><p>Schieß weiche Zahlen-Blobs: 2+2=4, 4+4=8 … mit Jokern.</p><div class="best" data-k="blobbo_best"></div></div>
+      <span class="play">▶</span>
+    </a>
+    <a class="game" href="runner.html">
+      <div class="art" style="background:linear-gradient(135deg,#4d8df7,#20c997)">🏃</div>
+      <div class="txt"><h2>Horde Run</h2><p>Wähl die richtigen Tore, vergrößere deinen Trupp, überleb die Wellen.</p><div class="best" data-k="horde_best"></div></div>
+      <span class="play">▶</span>
+    </a>
   </div>
 
-  <!-- Pause -->
-  <div id="pause" class="screen hidden">
-    <div class="panel">
-      <h2>Pause</h2>
-      <button id="btnResume" class="btn primary">▶ Weiter</button>
-      <button id="btnRestart" class="btn">↻ Neustart</button>
-      <button id="btnToMenu" class="btn">☰ Menü</button>
-    </div>
-  </div>
-
-  <!-- Game Over -->
-  <div id="over" class="screen hidden">
-    <div class="panel">
-      <h2>Game Over</h2>
-      <div class="final-score" id="finalScore">0</div>
-      <div id="overInfo" class="info"></div>
-      <button id="btnAgain" class="btn primary">↻ Nochmal</button>
-      <button id="btnBoardOver" class="btn">🏆 Rangliste</button>
-      <button id="btnOverMenu" class="btn">☰ Menü</button>
-    </div>
-  </div>
-
-  <!-- Rangliste -->
-  <div id="board" class="screen hidden">
-    <div class="panel board-panel">
-      <h2>🏆 Rangliste</h2>
-      <div class="tabs">
-        <button id="tabOnline" class="tab">Weltweit</button>
-        <button id="tabLocal" class="tab">Dieses Gerät</button>
-      </div>
-      <ol id="boardList" class="board-list"></ol>
-      <button id="btnBoardBack" class="btn">← Zurück</button>
-    </div>
+  <h3>Bald</h3>
+  <div class="grid">
+    <div class="game soon"><div class="art" style="background:#3f3496">🫧</div><div class="txt"><h2>Blob-Fresser<span class="tag">BALD</span></h2><p>Friss kleinere Blobs, werde riesig, pass auf die großen auf.</p></div></div>
+    <div class="game soon"><div class="art" style="background:#3f3496">🧱</div><div class="txt"><h2>Turm stapeln<span class="tag">BALD</span></h2><p>Lass wackelnde Blöcke fallen – wie hoch kommst du?</p></div></div>
+    <div class="game soon"><div class="art" style="background:#3f3496">🦘</div><div class="txt"><h2>Hochspringer<span class="tag">BALD</span></h2><p>Spring von Plattform zu Plattform, immer höher.</p></div></div>
   </div>
 </div>
-<script src="config.js"></script>
-<script src="store.js"></script>
-<script src="game.js"></script>
+<script>
+  (() => {
+    const get = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+    const name = get('blobbo_name', '');
+    if (name) { document.getElementById('whoName').textContent = name; document.getElementById('who').hidden = false; }
+    for (const el of document.querySelectorAll('.best')) {
+      const v = get(el.dataset.k, 0);
+      if (v > 0) el.textContent = '🏆 Dein Rekord: ' + Number(v).toLocaleString('de-DE');
+    }
+  })();
+</script>
 </body>
 </html>

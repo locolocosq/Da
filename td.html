@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1640">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Blob Defense</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  .logo.td { background: linear-gradient(180deg, #ffe066, #20c997 60%, #1c7ed6); -webkit-background-clip: text; background-clip: text; }
+  #tdhud { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 5px;
+    padding: calc(env(safe-area-inset-top) + 8px) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); }
+  .stat { font-size: 15px; font-weight: 700; padding: 6px 8px; border-radius: 12px; background: rgba(255,255,255,.12); white-space: nowrap;
+    font-variant-numeric: tabular-nums; }
+  .spacer { flex: 1; }
+  #tdhud .icon-btn { width: 40px; height: 42px; flex: none; }
+  #btnWave { border: 0; border-radius: 14px; padding: 0 10px; height: 42px; font: inherit; font-weight: 700; font-size: 15px; color: #fff;
+    background: #20c997; box-shadow: 0 4px 0 #0f8a66; cursor: pointer; white-space: nowrap; }
+  #btnWave:disabled { background: #4a4560; box-shadow: none; opacity: .8; }
+  #btnWave.pulse { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
+  #shop { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; justify-content: center;
+    padding: 0 max(10px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 10px) max(10px, env(safe-area-inset-left)); }
+  .shopbtn { position: relative; flex: 1; max-width: 96px; height: 74px; border: 0; border-radius: 16px; color: #fff; cursor: pointer;
+    font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    background: linear-gradient(180deg, #5b4fc0, #3f3496); box-shadow: 0 5px 0 #261e66; }
+  .shopbtn .ic { font-size: 24px; line-height: 1; }
+  .shopbtn .nm { font-size: 12px; font-weight: 700; }
+  .shopbtn .ct { font-size: 13px; font-weight: 700; color: #ffd93d; }
+  .shopbtn.sel { background: linear-gradient(180deg, #20c997, #0f8a66); box-shadow: 0 5px 0 #075c44; }
+  .shopbtn.poor .ct { color: #ff8a8a; }
+  .shopbtn:focus-visible, #btnWave:focus-visible { outline: 3px solid #ffd93d; outline-offset: 2px; }
+  #tpanel { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 96px);
+    width: min(360px, calc(100% - 24px)); background: #2a2163; border: 2px solid rgba(255,255,255,.15); border-radius: 18px; padding: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  #tpanel .row { display: flex; gap: 8px; }
+  #tpanel h3 { margin: 0 0 4px; font-size: 18px; display: flex; justify-content: space-between; }
+  #tpanel .info { margin: 0 0 8px; font-size: 14px; opacity: .9; min-height: 0; text-align: left; }
+  #tpanel .btn { margin: 0; font-size: 16px; padding: 11px 6px; }
+  .btn.red { background: #e8590c; box-shadow: 0 5px 0 #a33d06; }
+  #tdhint { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 98px);
+    background: rgba(20,14,50,.85); padding: 7px 12px; border-radius: 12px; font-size: 14px; white-space: nowrap; pointer-events: none; }
+  #banner { position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+    font-size: 38px; font-weight: 700; color: #ffd93d; text-shadow: 0 4px 0 #c9372c, 0 0 20px rgba(255,200,0,.5); white-space: nowrap; }
+  #banner small { display: block; font-size: 17px; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.5); }
+  .game-switch { margin-top: 14px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <div id="tdhud" class="hidden">
+    <span class="stat">❤️ <span id="hLives">20</span></span>
+    <span class="stat">💰 <span id="hGold">0</span></span>
+    <span class="stat">🌊 <span id="hWave">0</span></span>
+    <span class="spacer"></span>
+    <button id="btnSpeed" class="icon-btn" aria-label="Tempo">1×</button>
+    <button id="btnPause" class="icon-btn" aria-label="Pause">⏸</button>
+  </div>
+  <div id="banner" class="hidden"></div>
+  <div id="tdhint" class="hidden"></div>
+
+  <div id="tpanel" class="hidden">
+    <h3><span id="tpName">Kanone</span><span id="tpLvl">Stufe 1</span></h3>
+    <p class="info" id="tpInfo"></p>
+    <div class="row">
+      <button id="tpUp" class="btn primary">⬆ Verbessern</button>
+      <button id="tpSell" class="btn red">💰 Verkaufen</button>
+    </div>
+  </div>
+
+  <div id="shop" class="hidden">
+    <button class="shopbtn" data-t="cannon"><span class="ic">🔫</span><span class="nm">Kanone</span><span class="ct">50</span></button>
+    <button class="shopbtn" data-t="ice"><span class="ic">❄️</span><span class="nm">Eis</span><span class="ct">70</span></button>
+    <button class="shopbtn" data-t="bomb"><span class="ic">💣</span><span class="nm">Bombe</span><span class="ct">90</span></button>
+    <button class="shopbtn" data-t="laser"><span class="ic">⚡</span><span class="nm">Laser</span><span class="ct">140</span></button>
+  </div>
+
+  <div id="menu" class="screen">
+    <div class="panel">
+      <h1 class="logo td">Blob Defense</h1>
+      <p class="tagline">Die Schleim-Armee marschiert! Bau Türme und halte jede Welle auf.</p>
+      <label class="field">
+        <span>Dein Username</span>
+        <input id="nameInput" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="z.B. BlobKing">
+      </label>
+      <button id="btnPlay" class="btn primary">▶ Spielen</button>
+      <button id="btnBoardMenu" class="btn">🏆 Rangliste</button>
+      <div class="row">
+        <button id="btnMusic" class="btn small">🎵 Musik: an</button>
+        <button id="btnSfx" class="btn small">🔊 Effekte: an</button>
+      </div>
+      <details class="howto">
+        <summary>So geht's</summary>
+        <ul>
+          <li>Wähl unten einen Turm und tippe auf ein freies Grasfeld neben dem Weg.</li>
+          <li>🔫 Kanone: schnell, ein Ziel. ❄️ Eis: verlangsamt alle in der Nähe. 💣 Bombe: Flächenschaden. ⚡ Laser: weit und stark.</li>
+          <li>Tippe auf einen Turm, um ihn zu verbessern (bis Stufe 4) oder zu verkaufen.</li>
+          <li>Starte die Welle, wenn du bereit bist. Jede Welle bringt Gold, Bosse kommen alle 10 Wellen.</li>
+          <li>Kommt ein Blob ans Ende, verlierst du ein Leben. Endlos – wie weit schaffst du es?</li>
+        </ul>
+      </details>
+      <a class="btn game-switch" href="./">🎮 Alle Spiele</a>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <h2>Pause</h2>
+      <button id="btnResume" class="btn primary">▶ Weiter</button>
+      <button id="btnRestart" class="btn">↻ Neustart</button>
+      <button id="btnToMenu" class="btn">☰ Menü</button>
+    </div>
+  </div>
+
+  <div id="over" class="screen hidden">
+    <div class="panel">
+      <h2>Game Over</h2>
+      <div class="final-score" id="finalScore">0</div>
+      <div id="overInfo" class="info"></div>
+      <button id="btnAgain" class="btn primary">↻ Nochmal</button>
+      <button id="btnBoardOver" class="btn">🏆 Rangliste</button>
+      <button id="btnOverMenu" class="btn">☰ Menü</button>
+    </div>
+  </div>
+
+  <div id="board" class="screen hidden">
+    <div class="panel board-panel">
+      <h2>🏆 Blob Defense</h2>
+      <div class="tabs">
+        <button id="tabOnline" class="tab">Weltweit</button>
+        <button id="tabLocal" class="tab">Dieses Gerät</button>
+      </div>
+      <ol id="boardList" class="board-list"></ol>
+      <button id="btnBoardBack" class="btn">← Zurück</button>
+    </div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="store.js"></script>
+<script src="kit.js"></script>
+<script src="td.js"></script>
+</body>
+</html>
