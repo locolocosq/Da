@@ -8,7 +8,10 @@
   const BEVEL = 34;
   const BUMPERS = [{ x: -8, y: 205, r: 30 }, { x: W + 8, y: 205, r: 30 }];
   const DANGER_Y = 92;                // rote Linie
-  const DANGER_TIME = 3.0;            // Sekunden über der Linie bis Game Over
+  const DANGER_TIME = 5.0;            // Sekunden über der Linie bis Game Over
+  const JOKER_EVERY = 50000;          // alle 50.000 Punkte gibt es jeden Joker einmal dazu
+  const SHAKE_TIME = 1.4;             // Dauer Schütteln (s)
+  const shakeAcc = { x: 0, y: 0 };    // Zusatz-Beschleunigung beim Schütteln
   const CANNON = { x: W / 2, y: 36 };
   const GRAVITY = 1300;
   const STEP = 1 / 60;
@@ -18,8 +21,9 @@
   const DAMP = 0.9990;
   const SHOT_SPEED = 720;
   const COOLDOWN = 0.45;
-  const INNER_DAMP = 0.8;           // innere Dämpfung: schluckt den Aufprall (kaum Hüpfen)
+  const INNER_DAMP = 0.95;           // innere Dämpfung: schluckt den Aufprall (kaum Hüpfen)
   const PRESSURE = 0.3;             // wie stark das Volumen zurückgedrückt wird
+  const UP_DAMP = 0.6;               // Rückprall nach oben bei Kontakt
   const SPIN_DAMP = 0.08;            // bremst Drehen
   const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
 
@@ -116,6 +120,15 @@
     mega() {
       [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => this.tone(392 * Math.pow(2, n / 12), 0.4, 'triangle', 0.15, null, i * 0.07));
     },
+    snipe() {
+      this.tone(1400, 0.08, 'square', 0.06, 300);
+      this.noiseBurst(0.25, 0.25, 1200);
+      this.tone(120, 0.3, 'sine', 0.3, 40, 0.03);
+    },
+    undo() { [12, 7, 4, 0].forEach((n, i) => this.tone(523 * Math.pow(2, n / 12), 0.12, 'triangle', 0.12, null, i * 0.05)); },
+    rumble() {
+      for (let i = 0; i < 7; i++) { this.tone(rand(55, 80), 0.25, 'sine', 0.25, null, i * 0.19); this.noiseBurst(0.18, 0.08, 300, 'lowpass', i * 0.19); }
+    },
     warn() { this.tone(880, 0.09, 'square', 0.05); this.tone(660, 0.09, 'square', 0.04, null, 0.1); },
     over() { [7, 4, 0, -5].forEach((n, i) => this.tone(330 * Math.pow(2, n / 12), 0.35, 'triangle', 0.18, null, i * 0.16)); },
     click() { this.tone(660, 0.06, 'sine', 0.12, 880); },
@@ -171,11 +184,12 @@
       this.area0 = 0.5 * n * this.R * this.R * Math.sin((2 * Math.PI) / n);
       this.edge0 = 2 * this.R * Math.sin(Math.PI / n);
       this.invMass = n / (this.R * this.R);
-      this.k = 0.006;                  // kaum Formerhalt -> Wasserballon statt Gummi
+      this.k = 0.002;                  // kaum Formerhalt -> Wasserballon statt Gummi
       this.cx = x; this.cy = y; this.ang = 0;
       this.age = 0; this.dead = false;
       this.lastVx = 0; this.lastVy = 0; this.prevCx = x; this.prevCy = y;
       this.flash = 0;
+      this.stored = 0;                 // Punkte, die in diesem Blob stecken (für den Sniper)
     }
     setVel(vx, vy) {
       for (let i = 0; i < this.n; i++) { this.px[i] = this.x[i] - vx * HS; this.py[i] = this.y[i] - vy * HS; }
@@ -191,6 +205,13 @@
       let cx = 0, cy = 0, mx = 0, my = 0;
       for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; mx += x[i] - this.px[i]; my += y[i] - this.py[i]; }
       cx /= n; cy /= n; mx /= n; my /= n;
+      // Aufprall schlucken: beim Berühren federt der Ballon kaum nach oben zurück
+      if (this.touch && my < 0) {
+        const nmy = my * UP_DAMP;
+        for (let i = 0; i < n; i++) this.py[i] += my - nmy;
+        my = nmy;
+      }
+      this.touch = false;
       // Drehgeschwindigkeit (Wasserballons drehen sich kaum)
       let L = 0, I = 0;
       for (let i = 0; i < n; i++) {
@@ -207,7 +228,7 @@
         const v2 = vx * vx + vy * vy;
         if (v2 > VMAX * VMAX) { const f = VMAX / Math.sqrt(v2); vx *= f; vy *= f; }
         this.px[i] = x[i]; this.py[i] = y[i];
-        x[i] += vx; y[i] += vy + g;
+        x[i] += vx + shakeAcc.x * HS * HS; y[i] += vy + g + shakeAcc.y * HS * HS;
       }
     }
     // Druck: Fläche bleibt erhalten (wie ein Wasserballon)
@@ -230,7 +251,7 @@
     }
     // Hautspannung: Kanten dürfen sich etwas dehnen/stauchen
     edges() {
-      const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.15, mn = this.edge0 * 0.5;
+      const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.25, mn = this.edge0 * 0.5;
       this.flip = !this.flip;
       for (let k = 0; k < n; k++) {
         const i = this.flip ? k : n - 1 - k;
@@ -273,7 +294,7 @@
       for (let i = 0; i < this.n; i++) {
         let x = this.x[i], y = this.y[i];
         if (y > H) {
-          y = H;
+          y = H; this.touch = true;
           this.px[i] = x - (x - this.px[i]) * 0.97;  // leichte Bodenreibung
         } else if (y < -200) { y = -200; }
         if (x < 0) x = 0; else if (x > W) x = W;
@@ -314,7 +335,7 @@
       const dx0 = px - B.cx, dy0 = py - B.cy;
       if (dx0 * dx0 + dy0 * dy0 > lim) continue;
       if (!inside(B, px, py)) continue;
-      hit = true;
+      hit = true; A.touch = B.touch = true;
       const dd0 = Math.sqrt(dx0 * dx0 + dy0 * dy0);
       if (dd0 < B.R * 0.45) {
         // steckt tief drin: radial nach außen schieben
@@ -368,6 +389,8 @@
     aim: Math.PI / 2, aiming: false,
     danger: 0, warnTick: 0, combo: 0, comboTimer: 0,
     shake: 0, time: 0, maxLevel: 0, overTimer: 0,
+    jokers: { sniper: 1, undo: 1, shake: 1 }, nextJoker: JOKER_EVERY,
+    snap: null, sniper: false, shakeT: 0, safeT: 0,
   };
   let username = store.get('blobbo_name', '');
 
@@ -386,14 +409,20 @@
     G.score = 0; G.cooldown = 0; G.danger = 0; G.combo = 0; G.comboTimer = 0;
     G.maxLevel = 0; G.aim = Math.PI / 2; G.aiming = false; G.overTimer = 0;
     G.queue = [randomLevel(), randomLevel(), randomLevel()];
+    G.jokers = { sniper: 1, undo: 1, shake: 1 }; G.nextJoker = JOKER_EVERY;
+    G.snap = null; G.sniper = false; G.shakeT = 0; G.safeT = 0; shakeAcc.x = shakeAcc.y = 0;
     G.state = 'playing';
     updateHud();
     show(null);
     $('hud').classList.remove('hidden');
+    $('jokers').classList.remove('hidden');
+    updateJokers();
   }
 
   function shoot() {
     if (G.state !== 'playing' || G.cooldown > 0) return;
+    G.snap = snapshot();               // Zustand merken für den Zurück-Joker
+    updateJokers();
     const dx = Math.cos(G.aim), dy = Math.sin(G.aim);
     const lvl = G.queue.shift();
     G.queue.push(randomLevel());
@@ -408,9 +437,110 @@
 
   function addScore(pts, x, y, color) {
     G.score += pts;
-    if (G.score > G.best) { G.best = G.score; store.set('blobbo_best', G.best); }
     G.floats.push({ x, y, t: 0, txt: '+' + pts, c: color });
+    while (G.score >= G.nextJoker) {
+      G.nextJoker += JOKER_EVERY;
+      G.jokers.sniper++; G.jokers.undo++; G.jokers.shake++;
+      setTimeout(() => showCombo('+1 JOKER!'), 350);
+      Sound.mega();
+    }
     updateHud();
+    updateJokers();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Joker
+  // ---------------------------------------------------------------------------
+  function snapshot() {
+    return {
+      blobs: G.blobs.map((b) => ({
+        level: b.level, x: b.x.slice(), y: b.y.slice(), px: b.px.slice(), py: b.py.slice(),
+        age: b.age, stored: b.stored,
+      })),
+      score: G.score, queue: G.queue.slice(), maxLevel: G.maxLevel, combo: G.combo, comboTimer: G.comboTimer,
+    };
+  }
+
+  function useUndo() {
+    if (G.state !== 'playing' || !G.snap || G.jokers.undo <= 0) return;
+    const s = G.snap;
+    G.blobs = s.blobs.map((d) => {
+      const b = new Blob(0, 0, d.level);
+      b.x.set(d.x); b.y.set(d.y); b.px.set(d.px); b.py.set(d.py);
+      b.age = d.age; b.stored = d.stored;
+      b.centroid(); b.prevCx = b.cx; b.prevCy = b.cy;
+      return b;
+    });
+    G.score = s.score; G.queue = s.queue.slice(); G.maxLevel = s.maxLevel;
+    G.combo = s.combo; G.comboTimer = s.comboTimer;
+    G.danger = 0; G.cooldown = 0.2; G.parts = []; G.floats = [];
+    G.snap = null; G.jokers.undo--;
+    G.sniper = false;
+    Sound.undo(); vibrate(20);
+    showCombo('ZURÜCK!');
+    updateHud(); updateJokers();
+  }
+
+  function toggleSniper() {
+    if (G.state !== 'playing') return;
+    if (!G.sniper && G.jokers.sniper <= 0) return;
+    G.sniper = !G.sniper; G.aiming = false;
+    Sound.click();
+    updateJokers();
+  }
+
+  function snipeAt(p) {
+    let hit = null;
+    for (const b of G.blobs) if (inside(b, p.x, p.y)) { hit = b; break; }
+    if (!hit) {
+      // daneben getippt: nächsten Blob in der Nähe nehmen
+      let best = 30 * 30;
+      for (const b of G.blobs) { const d = (b.cx - p.x) ** 2 + (b.cy - p.y) ** 2 - b.R * b.R; if (d < best) { best = d; hit = b; } }
+    }
+    if (!hit) return;
+    G.blobs = G.blobs.filter((b) => b !== hit);
+    G.jokers.sniper--; G.sniper = false;
+    const lose = Math.min(hit.stored, G.score);
+    G.score -= lose;
+    if (lose > 0) G.floats.push({ x: hit.cx, y: hit.cy - hit.R * 0.5, t: 0, txt: '−' + lose, c: '#ff5c74' });
+    burst(hit.cx, hit.cy, LEVELS[hit.level].c, 18 + hit.level * 2, 160 + hit.level * 20);
+    G.shake = Math.max(G.shake, 4);
+    Sound.snipe(); vibrate([15, 20, 30]);
+    updateHud(); updateJokers();
+  }
+
+  function useShake() {
+    if (G.state !== 'playing' || G.jokers.shake <= 0 || G.shakeT > 0) return;
+    G.jokers.shake--;
+    G.shakeT = SHAKE_TIME; G.safeT = SHAKE_TIME + 1.0;
+    G.danger = 0;
+    Sound.rumble(); vibrate([30, 40, 30, 40, 30]);
+    updateJokers();
+  }
+
+  function updateShake(dt) {
+    if (G.shakeT > 0) {
+      G.shakeT = Math.max(0, G.shakeT - dt);
+      const t = SHAKE_TIME - G.shakeT, env = Math.sin(Math.PI * t / SHAKE_TIME); // sanft an und aus
+      shakeAcc.x = Math.sin(t * Math.PI * 2 * 5) * 2600 * env;
+      shakeAcc.y = -Math.abs(Math.sin(t * Math.PI * 2 * 2.5)) * 1500 * env;
+      G.shake = Math.max(G.shake, 3 * env);
+    } else { shakeAcc.x = shakeAcc.y = 0; }
+    G.safeT = Math.max(0, G.safeT - dt);
+  }
+
+  function updateJokers() {
+    const set = (id, n, on) => {
+      const b = $(id);
+      b.querySelector('.cnt').textContent = n;
+      b.disabled = !on;
+    };
+    const playing = G.state === 'playing';
+    set('jkSniper', G.jokers.sniper, playing && (G.jokers.sniper > 0 || G.sniper));
+    set('jkUndo', G.jokers.undo, playing && G.jokers.undo > 0 && !!G.snap);
+    set('jkShake', G.jokers.shake, playing && G.jokers.shake > 0 && G.shakeT === 0);
+    $('jkSniper').classList.toggle('active', G.sniper);
+    $('sniperHint').classList.toggle('hidden', !G.sniper);
   }
 
   function burst(x, y, color, count, power) {
@@ -435,9 +565,11 @@
       const nb = new Blob(nx, ny, nl, 0.75);
       nb.setVel(vx * 0.3, vy * 0.3 - 60);
       nb.age = 1; nb.flash = 1;
+      nb.stored = a.stored + b.stored;
       G.blobs.push(nb);
       G.maxLevel = Math.max(G.maxLevel, nl);
       const pts = LEVELS[nl].v * mult;
+      nb.stored += pts;
       addScore(pts, nx, ny - R * 0.6, LEVELS[nl].c);
       burst(nx, ny, LEVELS[lvl].c, 8 + nl * 2, 110 + nl * 18);
       G.shake = Math.max(G.shake, nl * 0.6);
@@ -533,7 +665,10 @@
       }
 
       // Gefahrenlinie
-      if (G.state === 'playing') {
+      if (G.state === 'playing') updateShake(dt);
+      if (G.state === 'playing' && G.safeT > 0) {
+        // beim Schütteln läuft kein Timer
+      } else if (G.state === 'playing') {
         let over = false;
         for (const b of G.blobs) if (b.age > 1.2 && topOf(b) < DANGER_Y) { over = true; break; }
         if (over) {
@@ -563,7 +698,7 @@
     dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     cw = window.innerWidth; ch = window.innerHeight;
     canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
-    const topPad = 100, botPad = 16;
+    const topPad = 100, botPad = 100;
     scale = Math.min((cw - 12) / (W + FRAME * 2), (ch - topPad - botPad) / (H + FRAME * 2));
     offX = (cw - W * scale) / 2;
     offY = topPad + (ch - topPad - botPad - H * scale) / 2;
@@ -713,6 +848,11 @@
     if (G.state === 'playing' && G.aiming) drawTrajectory(c);
 
     for (const b of G.blobs) drawBlob(c, b);
+    if (G.sniper) {
+      c.strokeStyle = '#ff5c74'; c.lineWidth = 2; c.setLineDash([6, 5]);
+      for (const b of G.blobs) { blobPath(c, b); c.stroke(); }
+      c.setLineDash([]);
+    }
 
     for (const p of G.parts) {
       c.globalAlpha = 1 - p.t / p.life;
@@ -793,6 +933,7 @@
     Sound.init();
     if (G.state !== 'playing') return;
     e.preventDefault();
+    if (G.sniper) { snipeAt(toWorld(e)); return; }
     G.aiming = true; setAim(toWorld(e));
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
   });
@@ -889,7 +1030,7 @@
   function show(id) { for (const s of screens) $(s).classList.toggle('hidden', s !== id); }
   function updateHud() {
     $('score').textContent = G.score.toLocaleString('de-DE');
-    $('best').textContent = G.best.toLocaleString('de-DE');
+    $('best').textContent = Math.max(G.best, G.score).toLocaleString('de-DE');
   }
   function cleanName(s) { return s.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16); }
   function soundLabels() {
@@ -903,9 +1044,13 @@
     G.aiming = false;
     Sound.over();
     vibrate([60, 50, 120]);
+    const isBest = G.score > G.best;
+    if (isBest) { G.best = G.score; store.set('blobbo_best', G.best); }
+    G.sniper = false; shakeAcc.x = shakeAcc.y = 0;
+    updateJokers();
     const rank = Board.addLocal(username, G.score);
     $('finalScore').textContent = G.score.toLocaleString('de-DE');
-    let info = G.score >= G.best && G.score > 0 ? '🎉 Neuer Rekord!' : 'Rekord: ' + G.best.toLocaleString('de-DE');
+    let info = isBest ? '🎉 Neuer Rekord!' : 'Rekord: ' + G.best.toLocaleString('de-DE');
     if (rank >= 0 && rank < 10) info += ' · Platz ' + (rank + 1) + ' auf diesem Gerät';
     $('overInfo').textContent = info;
     setTimeout(() => { if (G.state === 'over') show('over'); }, 900);
@@ -936,6 +1081,7 @@
     if (G.state !== 'playing') return;
     G.state = 'paused'; G.aiming = false;
     show('pause');
+    updateJokers();
     if (Sound.ctx) Sound.ctx.suspend();
   }
   function resume() {
@@ -943,8 +1089,10 @@
     if (Sound.ctx) Sound.ctx.resume();
     G.state = 'playing';
     show(null);
+    updateJokers();
   }
   function toMenu() {
+    $('jokers').classList.add('hidden');
     G.state = 'menu'; G.blobs = [];
     $('hud').classList.add('hidden');
     show('menu');
@@ -968,6 +1116,9 @@
   $('btnToMenu').onclick = toMenu;
   $('btnMusic').onclick = () => { Sound.init(); Sound.setMusic(!Sound.musOn); soundLabels(); };
   $('btnSfx').onclick = () => { Sound.init(); Sound.setSfx(!Sound.sfxOn); soundLabels(); Sound.click(); };
+  $('jkSniper').onclick = () => { Sound.init(); toggleSniper(); };
+  $('jkUndo').onclick = () => { Sound.init(); useUndo(); };
+  $('jkShake').onclick = () => { Sound.init(); useShake(); };
   $('btnSound').onclick = () => {
     Sound.init();
     const on = !(Sound.sfxOn || Sound.musOn);
@@ -1001,5 +1152,5 @@
   requestAnimationFrame(loop);
 
   // für Tests
-  window.__blobbo = { G, LEVELS, Blob };
+  window.__blobbo = { G, LEVELS, Blob, toScreen: (x, y) => ({ x: offX + x * scale, y: offY + y * scale }) };
 })();

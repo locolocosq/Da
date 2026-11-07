@@ -30,6 +30,13 @@
     </div>
   </div>
   <div id="combo" class="hidden"></div>
+  <div id="sniperHint" class="hidden">🎯 Tippe auf die Kugel, die weg soll</div>
+
+  <div id="jokers" class="hidden">
+    <button id="jkSniper" class="joker" aria-label="Sniper: eine Kugel entfernen"><span class="ic">🎯</span><span class="lb">Sniper</span><span class="cnt">1</span></button>
+    <button id="jkUndo" class="joker" aria-label="Zurück: letzten Wurf rückgängig"><span class="ic">↩️</span><span class="lb">Zurück</span><span class="cnt">1</span></button>
+    <button id="jkShake" class="joker" aria-label="Schütteln"><span class="ic">📳</span><span class="lb">Schütteln</span><span class="cnt">1</span></button>
+  </div>
 
   <!-- Menü -->
   <div id="menu" class="screen">
@@ -53,7 +60,8 @@
           <li>Tippe oder ziehe in den Kasten, um zu zielen. Loslassen = schießen.</li>
           <li>Zwei Blobs mit der gleichen Zahl, die sich berühren, verschmelzen zur doppelten Zahl.</li>
           <li>Schnelle Merges hintereinander geben Combo-Bonus.</li>
-          <li>Bleibt ein Blob zu lange über der roten Linie: Game Over!</li>
+          <li>Bleibt ein Blob 5 Sekunden über der roten Linie: Game Over!</li>
+          <li>Joker: 🎯 Sniper entfernt eine Kugel (ihre Punkte werden abgezogen), ↩️ Zurück macht den letzten Wurf rückgängig, 📳 Schütteln rüttelt alles durch. Alle 50.000 Punkte gibt es jeden Joker einmal dazu.</li>
         </ul>
       </details>
     </div>

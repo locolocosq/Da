@@ -99,3 +99,32 @@ h2 { margin: 0 0 12px; font-size: 32px; }
 .board-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-list .pts { font-weight: 700; color: #ffe066; }
 .board-list .empty { justify-content: center; opacity: .7; background: none; }
+
+#jokers {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 10px;
+  padding: 0 max(12px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 12px) max(12px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+.joker {
+  pointer-events: auto; position: relative; flex: 1; max-width: 118px; height: 70px; border: 0; border-radius: 18px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font: inherit; color: #fff; cursor: pointer;
+  background: linear-gradient(180deg, #5b4fc0, #3f3496); box-shadow: 0 5px 0 #261e66;
+}
+.joker .ic { font-size: 24px; line-height: 1; }
+.joker .lb { font-size: 13px; font-weight: 700; letter-spacing: .3px; }
+.joker .cnt {
+  position: absolute; top: -7px; right: -5px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px;
+  background: #ffd93d; color: #2a2163; font-weight: 700; font-size: 14px; line-height: 24px;
+  box-shadow: 0 2px 0 #b8941a;
+}
+.joker:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 #261e66; }
+.joker:disabled { opacity: .4; cursor: default; }
+.joker:disabled .cnt { background: #8a86a8; box-shadow: none; }
+.joker.active { background: linear-gradient(180deg, #ff6b81, #d93a55); box-shadow: 0 5px 0 #8e1f33; }
+.joker:focus-visible { outline: 3px solid #ffd93d; outline-offset: 2px; }
+#sniperHint {
+  position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 92px); transform: translateX(-50%);
+  background: #ff5c74; color: #fff; font-weight: 700; padding: 8px 14px; border-radius: 12px; white-space: nowrap;
+  pointer-events: none; box-shadow: 0 4px 0 #8e1f33;
+}
