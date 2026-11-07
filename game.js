@@ -18,7 +18,9 @@
   const DAMP = 0.9990;
   const SHOT_SPEED = 720;
   const COOLDOWN = 0.45;
-  const INNER_DAMP = 0.985;          // innere Dämpfung: etwas Nachschwappen wie Wasser
+  const INNER_DAMP = 0.8;           // innere Dämpfung: schluckt den Aufprall (kaum Hüpfen)
+  const PRESSURE = 0.3;             // wie stark das Volumen zurückgedrückt wird
+  const SPIN_DAMP = 0.08;            // bremst Drehen
   const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
 
   // Zahlen-Blobs: 2, 4, 8 … gleiche Zahlen verschmelzen zur doppelten
@@ -184,19 +186,28 @@
       this.cx = sx / this.n; this.cy = sy / this.n;
     }
     integrate() {
-      const g = GRAVITY * HS * HS, n = this.n;
-      // mittlere Geschwindigkeit: Abweichungen davon (Drehen, Zittern) werden gedämpft
-      let mx = 0, my = 0;
-      for (let i = 0; i < n; i++) { mx += this.x[i] - this.px[i]; my += this.y[i] - this.py[i]; }
-      mx /= n; my /= n;
+      const g = GRAVITY * HS * HS, n = this.n, x = this.x, y = this.y;
+      // Schwerpunkt + mittlere Geschwindigkeit
+      let cx = 0, cy = 0, mx = 0, my = 0;
+      for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; mx += x[i] - this.px[i]; my += y[i] - this.py[i]; }
+      cx /= n; cy /= n; mx /= n; my /= n;
+      // Drehgeschwindigkeit (Wasserballons drehen sich kaum)
+      let L = 0, I = 0;
       for (let i = 0; i < n; i++) {
-        let vx = this.x[i] - this.px[i], vy = this.y[i] - this.py[i];
+        const rx = x[i] - cx, ry = y[i] - cy;
+        L += rx * (y[i] - this.py[i] - my) - ry * (x[i] - this.px[i] - mx);
+        I += rx * rx + ry * ry;
+      }
+      const w = I > 0 ? (L / I) * SPIN_DAMP : 0;
+      for (let i = 0; i < n; i++) {
+        const rx = x[i] - cx, ry = y[i] - cy;
+        let vx = x[i] - this.px[i] + w * ry, vy = y[i] - this.py[i] - w * rx;
         vx = (mx + (vx - mx) * INNER_DAMP) * DAMP;
         vy = (my + (vy - my) * INNER_DAMP) * DAMP;
         const v2 = vx * vx + vy * vy;
         if (v2 > VMAX * VMAX) { const f = VMAX / Math.sqrt(v2); vx *= f; vy *= f; }
-        this.px[i] = this.x[i]; this.py[i] = this.y[i];
-        this.x[i] += vx; this.y[i] += vy + g;
+        this.px[i] = x[i]; this.py[i] = y[i];
+        x[i] += vx; y[i] += vy + g;
       }
     }
     // Druck: Fläche bleibt erhalten (wie ein Wasserballon)
@@ -214,13 +225,15 @@
         sum += gx[i] * gx[i] + gy[i] * gy[i];
       }
       if (sum < 1e-9) return;
-      const lam = C / sum;
+      const lam = (C / sum) * PRESSURE;
       for (let i = 0; i < n; i++) { x[i] += lam * gx[i]; y[i] += lam * gy[i]; }
     }
     // Hautspannung: Kanten dürfen sich etwas dehnen/stauchen
     edges() {
       const n = this.n, x = this.x, y = this.y, mx = this.edge0 * 1.15, mn = this.edge0 * 0.5;
-      for (let i = 0; i < n; i++) {
+      this.flip = !this.flip;
+      for (let k = 0; k < n; k++) {
+        const i = this.flip ? k : n - 1 - k;
         const j = i === n - 1 ? 0 : i + 1;
         const dx = x[j] - x[i], dy = y[j] - y[i];
         const d = Math.sqrt(dx * dx + dy * dy) || 1e-6;
@@ -229,12 +242,14 @@
         const c = (d - t) / d * 0.5;
         x[i] += dx * c; y[i] += dy * c; x[j] -= dx * c; y[j] -= dy * c;
       }
-      // Umriss glätten, damit nichts zerknittert
+      // Umriss glätten (gleichzeitig für alle Punkte, damit nichts in eine Richtung wandert)
+      const sx = this._sx || (this._sx = new Float32Array(n)), sy = this._sy || (this._sy = new Float32Array(n));
       for (let i = 0; i < n; i++) {
         const p = i === 0 ? n - 1 : i - 1, q = i === n - 1 ? 0 : i + 1;
-        x[i] += ((x[p] + x[q]) * 0.5 - x[i]) * 0.1;
-        y[i] += ((y[p] + y[q]) * 0.5 - y[i]) * 0.1;
+        sx[i] = ((x[p] + x[q]) * 0.5 - x[i]) * 0.1;
+        sy[i] = ((y[p] + y[q]) * 0.5 - y[i]) * 0.1;
       }
+      for (let i = 0; i < n; i++) { x[i] += sx[i]; y[i] += sy[i]; }
     }
     shapeMatch() {
       this.centroid();
