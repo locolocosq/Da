@@ -128,3 +128,6 @@ h2 { margin: 0 0 12px; font-size: 32px; }
   background: #ff5c74; color: #fff; font-weight: 700; padding: 8px 14px; border-radius: 12px; white-space: nowrap;
   pointer-events: none; box-shadow: 0 4px 0 #8e1f33;
 }
+
+a.btn { text-decoration: none; text-align: center; }
+.game-switch { margin-top: 14px; background: #1c7ed6; box-shadow: 0 5px 0 #0b4f8a; }

@@ -13,6 +13,13 @@ Bleibt ein Blob 5 Sekunden über der roten Linie → Game Over.
 - Username + Rangliste (lokal und optional weltweit)
 - Läuft komplett statisch – kein Build nötig
 
+## Zweites Spiel: Horde Run (`runner.html`)
+
+Endlos-Runner: Spur wählen (links/Mitte/rechts), durch Tore laufen (+, ×, −, ÷, 🔫 Schaden, ⚡ Feuerrate),
+große Multiplikatoren (×5 bis ×99) erst hinter Mauern freischießen, Gegnertrupps abschießen und nach jedem
+Abschnitt eine Welle abwehren. Die Wellen richten sich nach deiner Stärke zu Beginn des Abschnitts und werden
+immer härter. Eigene weltweite Rangliste.
+
 ## Spielen über GitHub Pages
 
 1. Im Repo auf **Settings → Pages** gehen.

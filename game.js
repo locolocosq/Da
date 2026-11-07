@@ -986,7 +986,7 @@
         const data = await BlobboStore.read(STORE_KEY);
         const list = this.clean((data && data.scores) || []);
         list.push({ name, score, ts: Date.now() });
-        await BlobboStore.write(STORE_KEY, { app: 'blobbo', scores: this.clean(list) });
+        await BlobboStore.write(STORE_KEY, Object.assign({}, data || {}, { app: 'blobbo', scores: this.clean(list) }));
         return;
       }
       await fetch(ONLINE_URL + '/scores.json', {
