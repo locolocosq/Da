@@ -17,7 +17,7 @@ Bleibt ein Blob 5 Sekunden über der roten Linie → Game Over.
 - Echte Soft-Body-Physik (Massepunkte, Druck/Volumenerhalt, Hautspannung): Blobs quetschen sich wie Zellen aneinander
 - 14 Stufen (2 bis 16384), Warteschlange der nächsten Blobs, Kasten mit Bumpern
 - Combo-System für schnelle Merges
-- 3 Joker: 🎯 Sniper (eine Kugel entfernen, ihre Punkte werden abgezogen), ↩️ Zurück (letzten Wurf rückgängig), 📳 Schütteln (rüttelt alles durch, Timer pausiert). Alle 50.000 Punkte gibt es jeden Joker einmal dazu.
+- 🎯 Sniper-Joker (eine Kugel entfernen, ihre Punkte werden abgezogen): je einer bei 150.000, 500.000 und 15.000.000 Punkten.
 - 5 Sekunden über der roten Linie = Game Over
 - Synthetisierte Sounds + Hintergrundmusik (WebAudio, keine Dateien), Vibration
 - Username + Rangliste (lokal und optional weltweit)

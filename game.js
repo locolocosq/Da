@@ -9,7 +9,7 @@
   const BUMPERS = [{ x: -8, y: 205, r: 30 }, { x: W + 8, y: 205, r: 30 }];
   const DANGER_Y = 92;                // rote Linie
   const DANGER_TIME = 5.0;            // Sekunden über der Linie bis Game Over
-  const JOKER_EVERY = 50000;          // alle 50.000 Punkte gibt es jeden Joker einmal dazu
+  const SNIPER_AT = [150000, 500000, 15000000];  // bei diesen Punktständen gibt es je einen Sniper
   const SHAKE_PULSES = [0, 0.85, 1.7]; // drei kräftige Stöße (Zeitpunkte in s)
   const SHAKE_TIME = 2.6;             // Dauer Schütteln (s)
   const shakeAcc = { x: 0, y: 0, on: false };  // on: beim Schütteln kein Abfedern    // Zusatz-Beschleunigung beim Schütteln
@@ -405,7 +405,7 @@
     aim: Math.PI / 2, aiming: false,
     danger: 0, warnTick: 0, combo: 0, comboTimer: 0,
     shake: 0, time: 0, maxLevel: 0, overTimer: 0,
-    jokers: { sniper: 1, undo: 1, shake: 1 }, nextJoker: JOKER_EVERY,
+    jokers: { sniper: 0 }, nextJoker: 0,
     snap: null, sniper: false, shakeT: 0, safeT: 0,
   };
   let username = store.get('blobbo_name', '');
@@ -425,7 +425,7 @@
     G.score = 0; G.cooldown = 0; G.danger = 0; G.combo = 0; G.comboTimer = 0;
     G.maxLevel = 0; G.aim = Math.PI / 2; G.aiming = false; G.overTimer = 0;
     G.queue = [randomLevel(), randomLevel(), randomLevel()];
-    G.jokers = { sniper: 1, undo: 1, shake: 1 }; G.nextJoker = JOKER_EVERY;
+    G.jokers = { sniper: 0 }; G.nextJoker = 0;
     G.snap = null; G.mergeT = new Map(); G.sniper = false; G.shakeT = 0; G.safeT = 0; shakeAcc.x = shakeAcc.y = 0;
     G.state = 'playing';
     updateHud();
@@ -437,8 +437,6 @@
 
   function shoot() {
     if (G.state !== 'playing' || G.cooldown > 0) return;
-    G.snap = snapshot();               // Zustand merken für den Zurück-Joker
-    updateJokers();
     const dx = Math.cos(G.aim), dy = Math.sin(G.aim);
     const lvl = G.queue.shift();
     G.queue.push(randomLevel());
@@ -454,10 +452,10 @@
   function addScore(pts, x, y, color) {
     G.score += pts;
     G.floats.push({ x, y, t: 0, txt: '+' + pts, c: color });
-    while (G.score >= G.nextJoker) {
-      G.nextJoker += JOKER_EVERY;
-      G.jokers.sniper++; G.jokers.undo++; G.jokers.shake++;
-      setTimeout(() => showCombo('+1 JOKER!'), 350);
+    while (G.nextJoker < SNIPER_AT.length && G.score >= SNIPER_AT[G.nextJoker]) {
+      G.nextJoker++;
+      G.jokers.sniper++;
+      setTimeout(() => showCombo('🎯 +1 SNIPER!'), 350);
       Sound.mega();
     }
     updateHud();
@@ -467,36 +465,6 @@
   // ---------------------------------------------------------------------------
   // Joker
   // ---------------------------------------------------------------------------
-  function snapshot() {
-    return {
-      blobs: G.blobs.map((b) => ({
-        level: b.level, x: b.x.slice(), y: b.y.slice(), px: b.px.slice(), py: b.py.slice(),
-        age: b.age, stored: b.stored,
-      })),
-      score: G.score, queue: G.queue.slice(), maxLevel: G.maxLevel, combo: G.combo, comboTimer: G.comboTimer,
-    };
-  }
-
-  function useUndo() {
-    if (G.state !== 'playing' || !G.snap || G.jokers.undo <= 0) return;
-    const s = G.snap;
-    G.blobs = s.blobs.map((d) => {
-      const b = new Blob(0, 0, d.level);
-      b.x.set(d.x); b.y.set(d.y); b.px.set(d.px); b.py.set(d.py);
-      b.age = d.age; b.stored = d.stored;
-      b.centroid(); b.prevCx = b.cx; b.prevCy = b.cy;
-      return b;
-    });
-    G.score = s.score; G.queue = s.queue.slice(); G.maxLevel = s.maxLevel;
-    G.combo = s.combo; G.comboTimer = s.comboTimer;
-    G.danger = 0; G.cooldown = 0.2; G.parts = []; G.floats = []; G.ghosts = [];
-    G.snap = null; G.mergeT = new Map(); G.jokers.undo--;
-    G.sniper = false;
-    Sound.undo(); vibrate(20);
-    showCombo('ZURÜCK!');
-    updateHud(); updateJokers();
-  }
-
   function toggleSniper() {
     if (G.state !== 'playing') return;
     if (!G.sniper && G.jokers.sniper <= 0) return;
@@ -523,14 +491,6 @@
     G.shake = Math.max(G.shake, 4);
     Sound.snipe(); vibrate([15, 20, 30]);
     updateHud(); updateJokers();
-  }
-
-  function useShake() {
-    if (G.state !== 'playing' || G.jokers.shake <= 0 || G.shakeT > 0) return;
-    G.jokers.shake--;
-    G.shakeT = SHAKE_TIME; G.safeT = SHAKE_TIME + 1.5; G.pulse = 0;
-    G.danger = 0;
-    updateJokers();
   }
 
   // Ein Stoß: alles springt hoch – kleine Blobs höher, große kaum (so sortieren sie sich: groß unten, klein oben)
@@ -578,8 +538,6 @@
     };
     const playing = G.state === 'playing';
     set('jkSniper', G.jokers.sniper, playing && (G.jokers.sniper > 0 || G.sniper));
-    set('jkUndo', G.jokers.undo, playing && G.jokers.undo > 0 && !!G.snap);
-    set('jkShake', G.jokers.shake, playing && G.jokers.shake > 0 && G.shakeT === 0);
     $('jkSniper').classList.toggle('active', G.sniper);
     $('sniperHint').classList.toggle('hidden', !G.sniper);
   }
@@ -1367,8 +1325,6 @@
   $('btnMusic').onclick = () => { Sound.init(); Sound.setMusic(!Sound.musOn); soundLabels(); };
   $('btnSfx').onclick = () => { Sound.init(); Sound.setSfx(!Sound.sfxOn); soundLabels(); Sound.click(); };
   $('jkSniper').onclick = () => { Sound.init(); toggleSniper(); };
-  $('jkUndo').onclick = () => { Sound.init(); useUndo(); };
-  $('jkShake').onclick = () => { Sound.init(); useShake(); };
   $('btnSound').onclick = () => {
     Sound.init();
     const on = !(Sound.sfxOn || Sound.musOn);
