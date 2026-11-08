@@ -712,9 +712,12 @@
         b.age += dt;
         const vx = (b.cx - b.prevCx) / dt, vy = (b.cy - b.prevCy) / dt;
         const dv = Math.hypot(vx - b.lastVx, vy - b.lastVy);
-        if (G.state === 'playing' && dv > 220 && b.age > 0.05) Sound.squish(dv / 1200);
+        if (G.state === 'playing' && dv > 220 && b.age > 0.05) { Sound.squish(dv / 1200); if (dv > 420) b.ouch = 0.4; }
         b.lastVx = vx; b.lastVy = vy;
         b.flash = Math.max(0, b.flash - dt * 3);
+        b.ouch = Math.max(0, (b.ouch || 0) - dt);
+        b.blinkT = (b.blinkT === undefined ? rand(1, 5) : b.blinkT) - dt;
+        if (b.blinkT < -0.13) b.blinkT = rand(2, 6);
       }
 
       // Gefahrenlinie
@@ -776,14 +779,132 @@
     c.closePath();
   }
 
-  function label(c, x, y, R, level, ang) {
+  // ---------------------------------------------------------------------------
+  // Gesichter: jede Zahl hat ihr eigenes Smiley-Design
+  // ---------------------------------------------------------------------------
+  const INK = 'rgba(28,18,52,.92)';
+  const FACES = ['happy', 'grin', 'wink', 'tongue', 'wow', 'love', 'cool', 'stars', 'cheeky', 'sleepy', 'happy', 'cool', 'stars', 'love'];
+
+  function eye(c, x, y, er, lx, ly) {
+    c.fillStyle = '#fff';
+    c.beginPath(); c.ellipse(x, y, er, er * 1.15, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = INK;
+    c.beginPath(); c.arc(x + lx * er * 0.35, y + ly * er * 0.4, er * 0.58, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#fff';
+    c.beginPath(); c.arc(x + lx * er * 0.35 - er * 0.2, y + ly * er * 0.4 - er * 0.25, er * 0.2, 0, Math.PI * 2); c.fill();
+  }
+  function lid(c, x, y, er, up) { // geschlossenes Auge
+    c.beginPath();
+    if (up) c.arc(x, y + er * 0.3, er * 0.8, Math.PI * 1.15, Math.PI * 1.85);
+    else c.arc(x, y - er * 0.3, er * 0.8, Math.PI * 0.15, Math.PI * 0.85);
+    c.stroke();
+  }
+  function heart(c, x, y, s) {
+    c.fillStyle = '#ff3b6b';
+    c.beginPath();
+    c.moveTo(x, y + s * 0.9);
+    c.bezierCurveTo(x - s * 1.4, y - s * 0.1, x - s * 0.6, y - s * 1.1, x, y - s * 0.35);
+    c.bezierCurveTo(x + s * 0.6, y - s * 1.1, x + s * 1.4, y - s * 0.1, x, y + s * 0.9);
+    c.fill();
+  }
+  function star(c, x, y, s) {
+    c.fillStyle = '#fff6a0'; c.strokeStyle = '#e8a400'; c.lineWidth = Math.max(1, s * 0.15);
+    c.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? s * 0.45 : s;
+      c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    c.closePath(); c.fill(); c.stroke();
+  }
+  function crown(c, R) {
+    const w = R * 0.62, h = R * 0.34, y = -R * 0.98;
+    c.fillStyle = '#ffd43b'; c.strokeStyle = '#c98f00'; c.lineWidth = Math.max(1.2, R * 0.04);
+    c.beginPath();
+    c.moveTo(-w / 2, y + h); c.lineTo(-w / 2, y); c.lineTo(-w / 4, y + h * 0.55); c.lineTo(0, y - h * 0.15);
+    c.lineTo(w / 4, y + h * 0.55); c.lineTo(w / 2, y); c.lineTo(w / 2, y + h); c.closePath();
+    c.fill(); c.stroke();
+    c.fillStyle = '#ff5c74';
+    c.beginPath(); c.arc(0, y + h * 0.62, R * 0.05, 0, Math.PI * 2); c.fill();
+  }
+
+  // Gesicht im lokalen System (Mitte = 0,0), Zahl darunter
+  function face(c, R, level, st) {
+    const type = FACES[level] || 'happy';
+    const ex = R * 0.3, ey = -R * 0.3, er = Math.max(2.2, R * 0.16), my = -R * 0.04;
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = INK; c.lineWidth = Math.max(1.4, R * 0.065);
+    const lx = st.lx, ly = st.ly;
+    const blink = st.blink, ouch = st.ouch > 0, hype = st.glow > 0.25;
+
+    // Bäckchen
+    c.fillStyle = 'rgba(255,90,140,.28)';
+    c.beginPath(); c.ellipse(-ex * 1.55, my + R * 0.02, R * 0.13, R * 0.08, 0, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(ex * 1.55, my + R * 0.02, R * 0.13, R * 0.08, 0, 0, Math.PI * 2); c.fill();
+
+    // Augen
+    if (ouch) {
+      for (const sx of [-1, 1]) {
+        c.beginPath(); c.moveTo(sx * ex - er * 0.7 * sx, ey - er * 0.7); c.lineTo(sx * ex + er * 0.5 * sx, ey); c.lineTo(sx * ex - er * 0.7 * sx, ey + er * 0.7); c.stroke();
+      }
+    } else if (type === 'cool') {
+      c.fillStyle = '#16121f';
+      for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * ex, ey + er * 0.1, er * 1.35, er * 0.95, 0, 0, Math.PI * 2); c.fill(); }
+      c.beginPath(); c.moveTo(-ex, ey - er * 0.2); c.lineTo(ex, ey - er * 0.2); c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.55)';
+      for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * ex - er * 0.5, ey - er * 0.25, er * 0.35, er * 0.18, -0.4, 0, Math.PI * 2); c.fill(); }
+    } else if (type === 'love' && !blink) {
+      heart(c, -ex, ey, er * 1.25); heart(c, ex, ey, er * 1.25);
+    } else if (type === 'stars' && !blink) {
+      star(c, -ex, ey, er * 1.3); star(c, ex, ey, er * 1.3);
+    } else if (type === 'sleepy' || blink) {
+      lid(c, -ex, ey, er, false); lid(c, ex, ey, er, false);
+    } else if (type === 'wink' && !hype) {
+      lid(c, -ex, ey, er, true); eye(c, ex, ey, er, lx, ly);
+    } else {
+      const big = type === 'wow' || hype ? 1.25 : 1;
+      eye(c, -ex, ey, er * big, lx, ly); eye(c, ex, ey, er * big, lx, ly);
+      if (type === 'cheeky') { // freche Augenbrauen
+        c.beginPath(); c.moveTo(-ex - er, ey - er * 1.5); c.lineTo(-ex + er, ey - er * 1.1); c.stroke();
+        c.beginPath(); c.moveTo(ex + er, ey - er * 1.5); c.lineTo(ex - er, ey - er * 1.1); c.stroke();
+      }
+    }
+
+    // Mund
+    const mw = R * 0.2;
+    if (ouch) {
+      c.beginPath(); c.moveTo(-mw, my + R * 0.05);
+      for (let i = 1; i <= 4; i++) c.lineTo(-mw + (mw * 2 * i) / 4, my + R * 0.05 + (i % 2 ? -R * 0.05 : 0));
+      c.stroke();
+    } else if (type === 'wow' || type === 'sleepy') {
+      c.fillStyle = INK; c.beginPath(); c.ellipse(0, my + R * 0.04, R * 0.07, R * 0.09, 0, 0, Math.PI * 2); c.fill();
+      if (type === 'sleepy') {
+        c.fillStyle = INK; c.font = '700 ' + (R * 0.22).toFixed(1) + 'px Fredoka, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText('z', R * 0.48, -R * 0.62 - Math.sin(st.t * 2) * R * 0.05);
+      }
+    } else if (type === 'grin' || hype) {
+      c.fillStyle = INK; c.beginPath(); c.arc(0, my - R * 0.02, mw, 0, Math.PI); c.closePath(); c.fill();
+      c.fillStyle = '#ff7b9c'; c.beginPath(); c.ellipse(0, my + mw * 0.6, mw * 0.5, mw * 0.28, 0, 0, Math.PI * 2); c.fill();
+    } else if (type === 'tongue') {
+      c.beginPath(); c.arc(0, my - R * 0.06, mw, Math.PI * 0.15, Math.PI * 0.85); c.stroke();
+      c.fillStyle = '#ff7b9c'; c.beginPath(); c.ellipse(mw * 0.25, my + mw * 0.45, mw * 0.32, mw * 0.42, 0.2, 0, Math.PI * 2); c.fill();
+    } else if (type === 'cool' || type === 'cheeky') {
+      c.beginPath(); c.moveTo(-mw * 0.8, my + R * 0.03); c.quadraticCurveTo(mw * 0.2, my + R * 0.1, mw, my - R * 0.02); c.stroke();
+    } else {
+      c.beginPath(); c.arc(0, my - R * 0.08, mw, Math.PI * 0.15, Math.PI * 0.85); c.stroke();
+    }
+    if (level >= 10) crown(c, R);
+  }
+
+  function label(c, x, y, R, level, ang, st) {
     const txt = String(LEVELS[level].v);
-    const size = Math.min(R * 0.62, (R * 1.5) / txt.length);
+    const withFace = R >= 14;
     c.save(); c.translate(x, y); c.rotate(ang);
+    if (withFace) face(c, R, level, st || { lx: 0, ly: 0.4, blink: false, ouch: 0, glow: 0, t: G.time });
+    const size = withFace ? Math.min(R * 0.4, (R * 1.15) / txt.length) : Math.min(R * 0.62, (R * 1.5) / txt.length);
     c.font = '700 ' + size.toFixed(1) + 'px Fredoka, sans-serif';
     c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillStyle = 'rgba(20,16,40,.82)';
-    c.fillText(txt, 0, size * 0.05);
+    c.fillText(txt, 0, withFace ? R * 0.45 : size * 0.05);
     c.restore();
   }
 
@@ -803,7 +924,11 @@
     }
     if (b.flash > 0) { c.fillStyle = 'rgba(255,255,255,' + (b.flash * 0.8).toFixed(2) + ')'; c.fillRect(b.cx - b.R * 2, b.cy - b.R * 2, b.R * 4, b.R * 4); }
     c.restore();
-    label(c, b.cx, b.cy, b.R, b.level, b.ang);
+    // Blick: zum Werfer oben
+    const dx = CANNON.x - b.cx, dy = CANNON.y - b.cy, d = Math.hypot(dx, dy) || 1;
+    const ca = Math.cos(-b.ang), sa = Math.sin(-b.ang);
+    const lx = (dx * ca - dy * sa) / d, ly = (dx * sa + dy * ca) / d;
+    label(c, b.cx, b.cy, b.R, b.level, b.ang, { lx, ly, blink: b.blinkT < 0, ouch: b.ouch || 0, glow: b.glow || 0, t: G.time });
   }
 
   // Statischer Blob (Warteschlange / Menü)
