@@ -24,7 +24,9 @@
   const COOLDOWN = 0.45;
   const INNER_DAMP = 0.95;           // innere Dämpfung: schluckt den Aufprall (kaum Hüpfen)
   const PRESSURE = 0.3;             // wie stark das Volumen zurückgedrückt wird
-  const MERGE_TIME = 0.7;           // so lange müssen sich zwei gleiche Blobs berühren, bis sie verschmelzen
+  const MERGE_TIME = 0.001;         // gleiche Blobs verschmelzen sofort bei Berührung
+  const GROW_TIME = 0.8;            // so lange bläst sich der neue Blob auf
+  const GHOST_TIME = 0.45;          // so lange schrumpfen die alten Blobs zusammen
   const UP_DAMP = 0.6;               // Rückprall nach oben bei Kontakt
   const SPIN_DAMP = 0.08;            // bremst Drehen
   const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
@@ -187,6 +189,8 @@
       this.area0 = 0.5 * n * this.R * this.R * Math.sin((2 * Math.PI) / n);
       this.edge0 = 2 * this.R * Math.sin(Math.PI / n);
       this.invMass = n / (this.R * this.R);
+      this.base = { R: this.R, area0: this.area0, edge0: this.edge0, rx: this.rx.slice(), ry: this.ry.slice() };
+      this.growT = -1;
       this.k = 0.002;                  // kaum Formerhalt -> Wasserballon statt Gummi
       this.cx = x; this.cy = y; this.ang = 0;
       this.age = 0; this.dead = false;
@@ -196,6 +200,12 @@
       this.soft = clamp(Math.pow(40 / this.R, 4.5), 0.04, 1);   // große Blobs lassen sich unter Last stärker eindrücken
       this.glow = 0;
       this.sortAcc = 0;               // beim Schütteln: klein steigt auf, groß sinkt ab                 // Punkte, die in diesem Blob stecken (für den Sniper)
+    }
+    // Größe stufenlos ändern (für das Aufblasen nach dem Verschmelzen)
+    setScale(k) {
+      const B = this.base;
+      this.R = B.R * k; this.area0 = B.area0 * k * k; this.edge0 = B.edge0 * k;
+      for (let i = 0; i < this.n; i++) { this.rx[i] = B.rx[i] * k; this.ry[i] = B.ry[i] * k; }
     }
     setVel(vx, vy) {
       for (let i = 0; i < this.n; i++) { this.px[i] = this.x[i] - vx * HS; this.py[i] = this.y[i] - vy * HS; }
@@ -389,7 +399,7 @@
   let dpr = 1, scale = 1, offX = 0, offY = 0, cw = 0, ch = 0;
 
   const G = {
-    state: 'menu', blobs: [], parts: [], floats: [],
+    state: 'menu', blobs: [], parts: [], floats: [], ghosts: [],
     score: 0, best: store.get('blobbo_best_s2', 0),
     queue: [0, 1, 2], cooldown: 0,
     aim: Math.PI / 2, aiming: false,
@@ -411,7 +421,7 @@
   }
 
   function newGame() {
-    G.blobs = []; G.parts = []; G.floats = [];
+    G.blobs = []; G.parts = []; G.floats = []; G.ghosts = [];
     G.score = 0; G.cooldown = 0; G.danger = 0; G.combo = 0; G.comboTimer = 0;
     G.maxLevel = 0; G.aim = Math.PI / 2; G.aiming = false; G.overTimer = 0;
     G.queue = [randomLevel(), randomLevel(), randomLevel()];
@@ -479,7 +489,7 @@
     });
     G.score = s.score; G.queue = s.queue.slice(); G.maxLevel = s.maxLevel;
     G.combo = s.combo; G.comboTimer = s.comboTimer;
-    G.danger = 0; G.cooldown = 0.2; G.parts = []; G.floats = [];
+    G.danger = 0; G.cooldown = 0.2; G.parts = []; G.floats = []; G.ghosts = [];
     G.snap = null; G.mergeT = new Map(); G.jokers.undo--;
     G.sniper = false;
     Sound.undo(); vibrate(20);
@@ -583,6 +593,9 @@
 
   function doMerge(a, b) {
     a.dead = b.dead = true;
+    // die alten Blobs schrumpfen sichtbar zum Treffpunkt zusammen
+    const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2;
+    for (const o of [a, b]) G.ghosts.push({ x: o.x.slice(), y: o.y.slice(), n: o.n, level: o.level, cx: o.cx, cy: o.cy, mx, my, R: o.R, ang: o.ang, t: 0 });
     const lvl = a.level;
     const cx = (a.cx + b.cx) / 2, cy = (a.cy + b.cy) / 2;
     const vx = ((a.cx - a.prevCx) + (b.cx - b.prevCx)) / 2 / STEP;
@@ -593,7 +606,8 @@
     if (lvl < MAX_LEVEL) {
       const nl = lvl + 1, R = LEVELS[nl].r;
       const nx = clamp(cx, R * 0.7, W - R * 0.7), ny = Math.min(cy, H - R * 0.7);
-      const nb = new Blob(nx, ny, nl, 0.75);
+      const nb = new Blob(nx, ny, nl, 0.35);
+      nb.growT = 0; nb.setScale(0.35);
       nb.setVel(vx * 0.3, vy * 0.3 - 60);
       nb.age = 1; nb.flash = 1;
       nb.stored = a.stored + b.stored;
@@ -714,7 +728,15 @@
         const dv = Math.hypot(vx - b.lastVx, vy - b.lastVy);
         if (G.state === 'playing' && dv > 220 && b.age > 0.05) { Sound.squish(dv / 1200); if (dv > 420) b.ouch = 0.4; }
         b.lastVx = vx; b.lastVy = vy;
-        b.flash = Math.max(0, b.flash - dt * 3);
+        b.flash = Math.max(0, b.flash - dt * 1.4);
+        if (b.growT >= 0) {
+          b.growT += dt;
+          const k = Math.min(1, b.growT / GROW_TIME);
+          // weich mit kleinem Überschwingen (easeOutBack)
+          const c1 = 1.6, e = 1 + (c1 + 1) * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+          b.setScale(0.35 + 0.65 * e);
+          if (k >= 1) { b.setScale(1); b.growT = -1; }
+        }
         b.ouch = Math.max(0, (b.ouch || 0) - dt);
         b.blinkT = (b.blinkT === undefined ? rand(1, 5) : b.blinkT) - dt;
         if (b.blinkT < -0.13) b.blinkT = rand(2, 6);
@@ -739,6 +761,8 @@
         G.overTimer += dt;
       }
     }
+    for (const g of G.ghosts) g.t += dt;
+    G.ghosts = G.ghosts.filter((g) => g.t < GHOST_TIME);
     for (const p of G.parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 600 * dt; }
     G.parts = G.parts.filter((p) => p.t < p.life);
     for (const f of G.floats) f.t += dt;
@@ -928,7 +952,28 @@
     const dx = CANNON.x - b.cx, dy = CANNON.y - b.cy, d = Math.hypot(dx, dy) || 1;
     const ca = Math.cos(-b.ang), sa = Math.sin(-b.ang);
     const lx = (dx * ca - dy * sa) / d, ly = (dx * sa + dy * ca) / d;
-    label(c, b.cx, b.cy, b.R, b.level, b.ang, { lx, ly, blink: b.blinkT < 0, ouch: b.ouch || 0, glow: b.glow || 0, t: G.time });
+    label(c, b.cx, b.cy, b.R, b.level, b.ang, { lx, ly, blink: b.blinkT < 0, ouch: b.ouch || 0, glow: Math.max(b.glow || 0, b.growT >= 0 ? 1 : 0), t: G.time });
+  }
+
+  // Alter Blob, der beim Verschmelzen zum Treffpunkt schrumpft
+  function drawGhost(c, g) {
+    const k = Math.min(1, g.t / GHOST_TIME), e = k * k * (3 - 2 * k);
+    const sc = 1 - 0.75 * e;
+    const ox = g.cx + (g.mx - g.cx) * e, oy = g.cy + (g.my - g.cy) * e;
+    const L = LEVELS[g.level];
+    c.save();
+    c.globalAlpha = 1 - e * 0.8;
+    c.beginPath();
+    const px = (i) => ox + (g.x[i] - g.cx) * sc, py = (i) => oy + (g.y[i] - g.cy) * sc;
+    c.moveTo((px(g.n - 1) + px(0)) / 2, (py(g.n - 1) + py(0)) / 2);
+    for (let i = 0; i < g.n; i++) { const j = (i + 1) % g.n; c.quadraticCurveTo(px(i), py(i), (px(i) + px(j)) / 2, (py(i) + py(j)) / 2); }
+    c.closePath();
+    c.fillStyle = L.c; c.fill(); c.lineWidth = 2.5; c.strokeStyle = L.d; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,' + (0.5 * e).toFixed(2) + ')'; c.fill();
+    c.restore();
+    c.save(); c.globalAlpha = 1 - e;
+    label(c, ox, oy, g.R * sc, g.level, g.ang, { lx: (g.mx - g.cx) / (g.R || 1), ly: 0, blink: false, ouch: 0, glow: 1, t: G.time });
+    c.restore();
   }
 
   // Statischer Blob (Warteschlange / Menü)
@@ -1029,6 +1074,7 @@
 
     if (G.state === 'playing' && G.aiming) drawTrajectory(c);
 
+    for (const g of G.ghosts) drawGhost(c, g);
     for (const b of G.blobs) drawBlob(c, b);
     if (G.sniper) {
       c.strokeStyle = '#ff5c74'; c.lineWidth = 2; c.setLineDash([6, 5]);
