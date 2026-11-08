@@ -23,6 +23,7 @@
   const COOLDOWN = 0.45;
   const INNER_DAMP = 0.95;           // innere Dämpfung: schluckt den Aufprall (kaum Hüpfen)
   const PRESSURE = 0.3;             // wie stark das Volumen zurückgedrückt wird
+  const MERGE_TIME = 0.7;           // so lange müssen sich zwei gleiche Blobs berühren, bis sie verschmelzen
   const UP_DAMP = 0.6;               // Rückprall nach oben bei Kontakt
   const SPIN_DAMP = 0.08;            // bremst Drehen
   const VMAX = 1400 * HS;             // Tempolimit pro Teilschritt (verhindert Explosionen)
@@ -32,7 +33,7 @@
     '#ffd93d', '#ff9f43', '#4be3b0', '#4d8df7', '#9b5cff', '#ff5fa2', '#ff7b3a',
     '#d8f24a', '#6ef06a', '#3fd0ff', '#ff4d6d', '#c84bff', '#ffffff', '#ffb3f0',
   ];
-  const LEVELS = PALETTE.map((c, i) => ({ v: Math.pow(2, i + 1), r: Math.round(25 * Math.pow(1.15, i)), c }));
+  const LEVELS = PALETTE.map((c, i) => ({ v: Math.pow(2, i + 1), r: Math.round(i <= 6 ? 25 * Math.pow(1.15, i) : 58 * Math.pow(1.04, i - 6)), c }));
   const MAX_LEVEL = LEVELS.length - 1;
   const SPAWN_WEIGHTS = [30, 26, 20, 14, 10];
   const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31]; // Pentatonik
@@ -190,7 +191,9 @@
       this.age = 0; this.dead = false;
       this.lastVx = 0; this.lastVy = 0; this.prevCx = x; this.prevCy = y;
       this.flash = 0;
-      this.stored = 0;                 // Punkte, die in diesem Blob stecken (für den Sniper)
+      this.stored = 0;
+      this.soft = clamp(Math.pow(40 / this.R, 4.5), 0.04, 1);   // große Blobs lassen sich unter Last stärker eindrücken
+      this.glow = 0;                 // Punkte, die in diesem Blob stecken (für den Sniper)
     }
     setVel(vx, vy) {
       for (let i = 0; i < this.n; i++) { this.px[i] = this.x[i] - vx * HS; this.py[i] = this.y[i] - vy * HS; }
@@ -247,7 +250,7 @@
         sum += gx[i] * gx[i] + gy[i] * gy[i];
       }
       if (sum < 1e-9) return;
-      const lam = (C / sum) * PRESSURE;
+      const lam = (C / sum) * PRESSURE * this.soft;
       for (let i = 0; i < n; i++) { x[i] += lam * gx[i]; y[i] += lam * gy[i]; }
     }
     // Hautspannung: Kanten dürfen sich etwas dehnen/stauchen
@@ -411,7 +414,7 @@
     G.maxLevel = 0; G.aim = Math.PI / 2; G.aiming = false; G.overTimer = 0;
     G.queue = [randomLevel(), randomLevel(), randomLevel()];
     G.jokers = { sniper: 1, undo: 1, shake: 1 }; G.nextJoker = JOKER_EVERY;
-    G.snap = null; G.sniper = false; G.shakeT = 0; G.safeT = 0; shakeAcc.x = shakeAcc.y = 0;
+    G.snap = null; G.mergeT = new Map(); G.sniper = false; G.shakeT = 0; G.safeT = 0; shakeAcc.x = shakeAcc.y = 0;
     G.state = 'playing';
     updateHud();
     show(null);
@@ -475,7 +478,7 @@
     G.score = s.score; G.queue = s.queue.slice(); G.maxLevel = s.maxLevel;
     G.combo = s.combo; G.comboTimer = s.comboTimer;
     G.danger = 0; G.cooldown = 0.2; G.parts = []; G.floats = [];
-    G.snap = null; G.jokers.undo--;
+    G.snap = null; G.mergeT = new Map(); G.jokers.undo--;
     G.sniper = false;
     Sound.undo(); vibrate(20);
     showCombo('ZURÜCK!');
@@ -558,7 +561,7 @@
     const vx = ((a.cx - a.prevCx) + (b.cx - b.prevCx)) / 2 / STEP;
     const vy = ((a.cy - a.prevCy) + (b.cy - b.prevCy)) / 2 / STEP;
     G.combo = G.comboTimer > 0 ? G.combo + 1 : 1;
-    G.comboTimer = 1.2;
+    G.comboTimer = 2.2;
     const mult = Math.min(G.combo, 8);
     if (lvl < MAX_LEVEL) {
       const nl = lvl + 1, R = LEVELS[nl].r;
@@ -597,7 +600,7 @@
 
   function physics() {
     const blobs = G.blobs, n = blobs.length;
-    const merges = [];
+    const touching = new Map();
     for (const b of blobs) { b.prevCx = b.cx; b.prevCy = b.cy; }
     for (let s = 0; s < SUBSTEPS; s++) {
       for (let i = 0; i < n; i++) blobs[i].integrate();
@@ -620,14 +623,36 @@
               shift(B, -ux * sep * mA / (mA + mB), -uy * sep * mA / (mA + mB));
             }
             const h1 = pushOut(A, B), h2 = pushOut(B, A);
-            if (A.level === B.level && !A.dead && !B.dead && (h1 || h2 || near(A, B))) merges.push([A, B]);
+            if (A.level === B.level && !A.dead && !B.dead && (h1 || h2 || near(A, B))) touching.set(A.id + '-' + B.id, [A, B]);
           }
         }
       }
     }
-    for (const b of blobs) b.centroid();
-    for (const [a, b] of merges) if (!a.dead && !b.dead) doMerge(a, b);
-    if (merges.length) G.blobs = G.blobs.filter((b) => !b.dead);
+    for (const b of blobs) { b.centroid(); b.glow = 0; }
+    // Verschmelzen dauert: gleiche Blobs müssen sich eine Weile berühren
+    const MT = G.mergeT || (G.mergeT = new Map());
+    for (const [k, pair] of touching) {
+      const e = MT.get(k) || { a: pair[0], b: pair[1], t: 0 };
+      e.t += STEP; e.seen = true; MT.set(k, e);
+    }
+    let merged = false;
+    for (const [k, e] of MT) {
+      if (e.a.dead || e.b.dead) { MT.delete(k); continue; }
+      if (!e.seen) { e.t -= STEP; if (e.t <= 0) { MT.delete(k); continue; } }
+      e.seen = false;
+      const prog = Math.min(1, e.t / MERGE_TIME);
+      e.a.glow = Math.max(e.a.glow, prog); e.b.glow = Math.max(e.b.glow, prog);
+      // sanft zueinander ziehen
+      const dx = e.b.cx - e.a.cx, dy = e.b.cy - e.a.cy, d = Math.hypot(dx, dy) || 1;
+      const pull = 0.12 * prog;
+      nudge(e.a, dx / d * pull, dy / d * pull); nudge(e.b, -dx / d * pull, -dy / d * pull);
+      if (e.t >= MERGE_TIME) { MT.delete(k); doMerge(e.a, e.b); merged = true; }
+    }
+    if (merged) G.blobs = G.blobs.filter((b) => !b.dead);
+  }
+
+  function nudge(b, vx, vy) {  // Geschwindigkeit leicht ändern
+    for (let i = 0; i < b.n; i++) { b.px[i] -= vx; b.py[i] -= vy; }
   }
 
   function shift(b, sx, sy) {
@@ -640,7 +665,7 @@
     for (let i = 0; i < A.n; i++) {
       for (let j = 0; j < B.n; j++) {
         const dx = A.x[i] - B.x[j], dy = A.y[i] - B.y[j];
-        if (dx * dx + dy * dy < 9) return true;
+        if (dx * dx + dy * dy < 64) return true;   // bis 8 Einheiten Abstand zählt als Berührung
       }
     }
     return false;
@@ -745,6 +770,10 @@
     c.save(); c.clip();
     c.fillStyle = 'rgba(255,255,255,.22)';
     c.beginPath(); c.ellipse(b.cx - b.R * 0.35, b.cy - b.R * 0.45, b.R * 0.45, b.R * 0.25, -0.5, 0, Math.PI * 2); c.fill();
+    if (b.glow > 0) {
+      const a = b.glow * (0.35 + 0.25 * Math.sin(G.time * 30));
+      c.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')'; c.fillRect(b.cx - b.R * 2, b.cy - b.R * 2, b.R * 4, b.R * 4);
+    }
     if (b.flash > 0) { c.fillStyle = 'rgba(255,255,255,' + (b.flash * 0.8).toFixed(2) + ')'; c.fillRect(b.cx - b.R * 2, b.cy - b.R * 2, b.R * 4, b.R * 4); }
     c.restore();
     label(c, b.cx, b.cy, b.R, b.level, b.ang);
