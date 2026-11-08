@@ -10,8 +10,9 @@
   const DANGER_Y = 92;                // rote Linie
   const DANGER_TIME = 5.0;            // Sekunden über der Linie bis Game Over
   const JOKER_EVERY = 50000;          // alle 50.000 Punkte gibt es jeden Joker einmal dazu
-  const SHAKE_TIME = 1.4;             // Dauer Schütteln (s)
-  const shakeAcc = { x: 0, y: 0 };    // Zusatz-Beschleunigung beim Schütteln
+  const SHAKE_PULSES = [0, 0.85, 1.7]; // drei kräftige Stöße (Zeitpunkte in s)
+  const SHAKE_TIME = 2.6;             // Dauer Schütteln (s)
+  const shakeAcc = { x: 0, y: 0, on: false };  // on: beim Schütteln kein Abfedern    // Zusatz-Beschleunigung beim Schütteln
   const CANNON = { x: W / 2, y: 36 };
   const GRAVITY = 1300;
   const STEP = 1 / 60;
@@ -129,7 +130,7 @@
     },
     undo() { [12, 7, 4, 0].forEach((n, i) => this.tone(523 * Math.pow(2, n / 12), 0.12, 'triangle', 0.12, null, i * 0.05)); },
     rumble() {
-      for (let i = 0; i < 7; i++) { this.tone(rand(55, 80), 0.25, 'sine', 0.25, null, i * 0.19); this.noiseBurst(0.18, 0.08, 300, 'lowpass', i * 0.19); }
+      this.tone(70, 0.35, 'sine', 0.35, 40); this.noiseBurst(0.3, 0.18, 400, 'lowpass'); this.tone(140, 0.15, 'square', 0.04, 70);
     },
     warn() { this.tone(880, 0.09, 'square', 0.05); this.tone(660, 0.09, 'square', 0.04, null, 0.1); },
     over() { [7, 4, 0, -5].forEach((n, i) => this.tone(330 * Math.pow(2, n / 12), 0.35, 'triangle', 0.18, null, i * 0.16)); },
@@ -193,7 +194,8 @@
       this.flash = 0;
       this.stored = 0;
       this.soft = clamp(Math.pow(40 / this.R, 4.5), 0.04, 1);   // große Blobs lassen sich unter Last stärker eindrücken
-      this.glow = 0;                 // Punkte, die in diesem Blob stecken (für den Sniper)
+      this.glow = 0;
+      this.sortAcc = 0;               // beim Schütteln: klein steigt auf, groß sinkt ab                 // Punkte, die in diesem Blob stecken (für den Sniper)
     }
     setVel(vx, vy) {
       for (let i = 0; i < this.n; i++) { this.px[i] = this.x[i] - vx * HS; this.py[i] = this.y[i] - vy * HS; }
@@ -210,7 +212,7 @@
       for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; mx += x[i] - this.px[i]; my += y[i] - this.py[i]; }
       cx /= n; cy /= n; mx /= n; my /= n;
       // Aufprall schlucken: beim Berühren federt der Ballon kaum nach oben zurück
-      if (this.touch && my < 0) {
+      if (this.touch && my < 0 && !shakeAcc.on) {
         const nmy = my * UP_DAMP;
         for (let i = 0; i < n; i++) this.py[i] += my - nmy;
         my = nmy;
@@ -232,7 +234,7 @@
         const v2 = vx * vx + vy * vy;
         if (v2 > VMAX * VMAX) { const f = VMAX / Math.sqrt(v2); vx *= f; vy *= f; }
         this.px[i] = x[i]; this.py[i] = y[i];
-        x[i] += vx + shakeAcc.x * HS * HS; y[i] += vy + g + shakeAcc.y * HS * HS;
+        x[i] += vx + shakeAcc.x * HS * HS; y[i] += vy + g + (shakeAcc.y + this.sortAcc) * HS * HS;
       }
     }
     // Druck: Fläche bleibt erhalten (wie ein Wasserballon)
@@ -388,7 +390,7 @@
 
   const G = {
     state: 'menu', blobs: [], parts: [], floats: [],
-    score: 0, best: store.get('blobbo_best', 0),
+    score: 0, best: store.get('blobbo_best_s2', 0),
     queue: [0, 1, 2], cooldown: 0,
     aim: Math.PI / 2, aiming: false,
     danger: 0, warnTick: 0, combo: 0, comboTimer: 0,
@@ -516,20 +518,45 @@
   function useShake() {
     if (G.state !== 'playing' || G.jokers.shake <= 0 || G.shakeT > 0) return;
     G.jokers.shake--;
-    G.shakeT = SHAKE_TIME; G.safeT = SHAKE_TIME + 1.0;
+    G.shakeT = SHAKE_TIME; G.safeT = SHAKE_TIME + 1.5; G.pulse = 0;
     G.danger = 0;
-    Sound.rumble(); vibrate([30, 40, 30, 40, 30]);
     updateJokers();
   }
 
+  // Ein Stoß: alles springt hoch – kleine Blobs höher, große kaum (so sortieren sie sich: groß unten, klein oben)
+  function shakePulse() {
+    if (!G.blobs.length) return;
+    let rMin = Infinity, rMax = 0;
+    for (const b of G.blobs) { rMin = Math.min(rMin, b.R); rMax = Math.max(rMax, b.R); }
+    for (const b of G.blobs) {
+      const k = rMax > rMin ? (b.R - rMin) / (rMax - rMin) : 0.5;   // 0 = kleinster, 1 = größter
+      const up = 820 - 560 * k;                                      // Startgeschwindigkeit nach oben
+      const side = (Math.random() < 0.5 ? -1 : 1) * rand(200, 380) * (1 - k * 0.85);
+      nudge(b, side * HS, -up * HS);
+    }
+    G.shake = Math.max(G.shake, 10);
+    Sound.rumble(); vibrate(60);
+  }
+
   function updateShake(dt) {
+    shakeAcc.x = shakeAcc.y = 0;
+    shakeAcc.on = G.shakeT > 0;
+    if (!shakeAcc.on) for (const b of G.blobs) b.sortAcc = 0;
     if (G.shakeT > 0) {
+      const t0 = SHAKE_TIME - G.shakeT;
       G.shakeT = Math.max(0, G.shakeT - dt);
-      const t = SHAKE_TIME - G.shakeT, env = Math.sin(Math.PI * t / SHAKE_TIME); // sanft an und aus
-      shakeAcc.x = Math.sin(t * Math.PI * 2 * 5) * 2600 * env;
-      shakeAcc.y = -Math.abs(Math.sin(t * Math.PI * 2 * 2.5)) * 1500 * env;
-      G.shake = Math.max(G.shake, 3 * env);
-    } else { shakeAcc.x = shakeAcc.y = 0; }
+      const t1 = SHAKE_TIME - G.shakeT;
+      for (const pt of SHAKE_PULSES) if (pt >= t0 && pt < t1) shakePulse();
+      // Sortieren: kleine werden leichter, große schwerer
+      let rMin = Infinity, rMax = 0;
+      for (const b of G.blobs) { rMin = Math.min(rMin, b.R); rMax = Math.max(rMax, b.R); }
+      for (const b of G.blobs) {
+        const k = rMax > rMin ? (b.R - rMin) / (rMax - rMin) : 0.5;
+        b.sortAcc = (k - 0.5) * 2 * 2600;
+      }
+      // zwischen den Stößen leicht hin und her
+      shakeAcc.x = Math.sin(t1 * Math.PI * 2 * 4) * 900;
+    }
     G.safeT = Math.max(0, G.safeT - dt);
   }
 
@@ -986,14 +1013,14 @@
   // Rangliste
   // ---------------------------------------------------------------------------
   const Board = {
-    local() { return store.get('blobbo_scores', []); },
+    local() { return store.get('blobbo_scores_s2', []); },
     addLocal(name, score) {
       const list = this.local();
       const entry = { name, score, ts: Date.now() };
       list.push(entry);
       list.sort((a, b) => b.score - a.score);
       const top = list.slice(0, 50);
-      store.set('blobbo_scores', top);
+      store.set('blobbo_scores_s2', top);
       return top.indexOf(entry);
     },
     // Einträge prüfen: nur gültige Namen/Punkte, pro Name der beste
@@ -1013,9 +1040,9 @@
       if (STORE_KEY) {
         // lesen, eigenen Eintrag einfügen, zurückschreiben
         const data = await BlobboStore.read(STORE_KEY);
-        const list = this.clean((data && data.scores) || []);
+        const list = this.clean((data && data.blobbo) || []);
         list.push({ name, score, ts: Date.now() });
-        await BlobboStore.write(STORE_KEY, Object.assign({}, data || {}, { app: 'blobbo', scores: this.clean(list) }));
+        await BlobboStore.write(STORE_KEY, Object.assign({}, data || {}, { blobbo: this.clean(list) }));
         return;
       }
       await fetch(ONLINE_URL + '/scores.json', {
@@ -1026,7 +1053,7 @@
     async online() {
       if (STORE_KEY) {
         const data = await BlobboStore.read(STORE_KEY);
-        return this.clean((data && data.scores) || []);
+        return this.clean((data && data.blobbo) || []);
       }
       const res = await fetch(ONLINE_URL + '/scores.json?orderBy=%22score%22&limitToLast=100');
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1097,7 +1124,7 @@
     Sound.over();
     vibrate([60, 50, 120]);
     const isBest = G.score > G.best;
-    if (isBest) { G.best = G.score; store.set('blobbo_best', G.best); }
+    if (isBest) { G.best = G.score; store.set('blobbo_best_s2', G.best); }
     G.sniper = false; shakeAcc.x = shakeAcc.y = 0;
     updateJokers();
     const rank = Board.addLocal(username, G.score);
