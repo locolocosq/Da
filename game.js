@@ -9,6 +9,8 @@
   const BUMPERS = [{ x: -8, y: 205, r: 30 }, { x: W + 8, y: 205, r: 30 }];
   const DANGER_Y = 92;                // rote Linie
   const DANGER_TIME = 5.0;            // Sekunden über der Linie bis Game Over
+  // aus der Weltrangliste entfernte Einträge (nur Einträge bis zu diesem Zeitpunkt; neue Ergebnisse zählen wieder)
+  const REMOVED = [{ name: 'bilal', before: 1794180844455 }];
   const SNIPER_AT = [150000, 500000, 15000000];  // bei diesen Punktständen gibt es je einen Sniper
   const SHAKE_PULSES = [0, 0.85, 1.7]; // drei kräftige Stöße (Zeitpunkte in s)
   const SHAKE_TIME = 2.6;             // Dauer Schütteln (s)
@@ -1159,6 +1161,7 @@
         if (!e || typeof e.name !== 'string' || typeof e.score !== 'number' || !isFinite(e.score)) continue;
         const name = cleanName(e.name), score = Math.max(0, Math.min(99999999, Math.floor(e.score)));
         if (!name) continue;
+        if (REMOVED.some((r) => r.name === name.toLowerCase() && (Number(e.ts) || 0) <= r.before)) continue;
         const old = best.get(name);
         if (!old || score > old.score) best.set(name, { name, score, ts: Number(e.ts) || 0 });
       }
