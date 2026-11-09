@@ -1,14 +1,4 @@
-# Blob Arcade 🎮
-
-Spielekatalog fürs Handy (Startseite `index.html`): Blob Defense, Blobbo, Horde Run – weitere folgen.
-Alle Spiele teilen Username, Sound-Einstellungen und den Online-Speicher der Rangliste (`kit.js`, `store.js`).
-
-## Blob Defense (`td.html`)
-
-Tower Defense: Kanone, Eis, Bombe, Laser bauen und bis Stufe 4 verbessern, endlose Wellen, Boss alle 10 Wellen,
-Tempo 1×/2×/3×, eigene weltweite Rangliste.
-
-## Blobbo (`blobbo.html`)
+# Blobbo 🟣
 
 Ein Physik-Merge-Spiel fürs Handy: Schieß weiche Zahlen-Blobs in den Kasten.
 Zwei Blobs mit gleicher Zahl, die sich berühren, verschmelzen zur doppelten Zahl (2+2=4, 4+4=8 … bis 16384).
@@ -22,13 +12,6 @@ Bleibt ein Blob 5 Sekunden über der roten Linie → Game Over.
 - Synthetisierte Sounds + Hintergrundmusik (WebAudio, keine Dateien), Vibration
 - Username + Rangliste (lokal und optional weltweit)
 - Läuft komplett statisch – kein Build nötig
-
-## Zweites Spiel: Horde Run (`runner.html`)
-
-Endlos-Runner: Spur wählen (links/Mitte/rechts), durch Tore laufen (+, ×, −, ÷, 🔫 Schaden, ⚡ Feuerrate),
-große Multiplikatoren (×5 bis ×99) erst hinter Mauern freischießen, Gegnertrupps abschießen und nach jedem
-Abschnitt eine Welle abwehren. Die Wellen richten sich nach deiner Stärke zu Beginn des Abschnitts und werden
-immer härter. Eigene weltweite Rangliste.
 
 ## Spielen über GitHub Pages
 
